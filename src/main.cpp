@@ -142,8 +142,8 @@ static bool InitFont(void) {
         (u8 *)fontTexture,
         32,
         126,
-        16,
         32,
+        64,
         TTFToBitmap
     );
 
@@ -570,326 +570,170 @@ static void DrawText(
    INTERFACE PRINCIPAL
    ========================================================= */
 
-static void DrawScreen(int selected, int page) {
 
+static void DrawScreen(int selected, int page) {
     const u32 purple = 0x9560FFFF;
     const u32 white = 0xFFFFFFFF;
     const u32 grey = 0xAAA5B8FF;
+    const u32 background = 0x08070DFF;
 
-    DrawRect(
-        0, 0, 847, 511,
-        0x090811FF,
-        65535.0f
-    );
+    // Fundo e estrutura principal
+    DrawRect(0, 0, 848, 512, background, 65535.0f);
+    DrawRect(0, 0, 848, 64, 0x12101BFF, 50000.0f);
+    DrawRect(0, 64, 184, 383, 0x0D0B15FF, 50000.0f);
+    DrawRect(183, 64, 1, 383, 0x292337FF, 40000.0f);
 
-    DrawRect(
-        0, 0, 847, 66,
-        0x13111EFF,
-        50000.0f
-    );
+    // Identidade JEZZ
+    DrawRect(24, 20, 4, 25, purple, 100.0f);
+    DrawRect(33, 13, 4, 32, purple, 100.0f);
+    DrawRect(42, 18, 4, 27, purple, 100.0f);
+    DrawRect(51, 25, 4, 20, purple, 100.0f);
 
-    DrawRect(
-        0, 66, 190, 445,
-        0x0E0C17FF,
-        50000.0f
-    );
+    DrawText(68, 12, 26, 40, white, "JEZZ");
+    DrawText(112, 25, 9, 16, grey, "MUSIC PLAYER");
+    DrawText(730, 25, 9, 16, grey, "PS3 EDITION");
 
-    DrawRect(24, 25, 5, 20, purple, 100.0f);
-    DrawRect(34, 17, 5, 28, purple, 100.0f);
-    DrawRect(44, 22, 5, 23, purple, 100.0f);
-    DrawRect(54, 29, 5, 16, purple, 100.0f);
-
-    DrawText(72, 13, 22, 34, white, "JEZZ");
-
-    DrawText(
-        170, 25, 10, 20,
-        grey,
-        "MUSIC PLAYER"
-    );
-
-    DrawText(
-        24, 84, 10, 20,
-        grey,
-        "MENU PRINCIPAL"
-    );
+    // Menu lateral
+    DrawText(24, 83, 9, 16, grey, "MENU PRINCIPAL");
 
     for (int i = 0; i < MENU_COUNT; ++i) {
-
-        const float y = 112.0f + (float)i * 51.0f;
+        float y = 111.0f + (float)i * 47.0f;
 
         if (i == selected) {
-
-            DrawRect(
-                13, y, 163, 39,
-                0x35234FFF,
-                60.0f
-            );
-
-            DrawRect(
-                13, y, 4, 39,
-                purple,
-                40.0f
-            );
+            DrawRect(13, y, 157, 38, 0x302044FF, 100.0f);
+            DrawRect(13, y, 4, 38, purple, 60.0f);
         }
 
         DrawText(
             31,
             y + 8,
             12,
-            22,
+            21,
             (i == selected) ? white : grey,
             menuItems[i]
         );
     }
 
-    DrawText(
-        24, 459, 10, 18,
-        purple,
-        "JEZZ v0.2"
-    );
+    DrawText(24, 399, 9, 16, purple, "JEZZ v0.3");
+    DrawText(24, 421, 8, 14, grey, "MUSIC EXPERIENCE");
 
-    DrawText(
-        24, 480, 8, 14,
-        grey,
-        "PLAY YOUR WAY"
-    );
-
-
-    /* PAGINA INICIAL */
-
+    // Conteudo principal
     if (page == 0) {
+        DrawText(210, 80, 10, 18, grey, "BEM-VINDO AO JEZZ");
+        DrawText(210, 103, 23, 38, white, "O QUE VAMOS OUVIR?");
+
+        // Painel de destaque
+        DrawRect(210, 153, 610, 132, 0x1B142AFF, 300.0f);
+        DrawRect(210, 153, 5, 132, purple, 100.0f);
+
+        DrawText(239, 169, 10, 18, purple, "SUA EXPERIENCIA MUSICAL");
+        DrawText(239, 199, 19, 31, white, "SUA MUSICA. SEU MOMENTO.");
+        DrawText(239, 245, 9, 16, grey, "Explore sua biblioteca e descubra novos sons.");
+
+        // Equalizador decorativo
+        const float bars[9] = {
+            22, 38, 53, 31, 65, 43, 56, 28, 46
+        };
+
+        for (int i = 0; i < 9; ++i) {
+            float x = 690.0f + (float)i * 13.0f;
+            float h = bars[i];
+            DrawRect(
+                x,
+                258.0f - h,
+                7,
+                h,
+                (i % 2 == 0) ? purple : 0x65449AFF,
+                120.0f
+            );
+        }
+
+        DrawText(210, 302, 13, 23, white, "SUA BIBLIOTECA");
+
+        // Card de musicas
+        DrawRect(210, 337, 194, 83, 0x171421FF, 300.0f);
+        DrawRect(224, 348, 60, 60, 0x39245DFF, 180.0f);
+        DrawRect(224, 348, 60, 8, 0xA477DFFF, 120.0f);
+        DrawRect(234, 366, 9, 31, 0xC8A5FFFF, 100.0f);
+        DrawRect(248, 357, 9, 40, 0x9560FFFF, 100.0f);
+        DrawRect(262, 373, 9, 24, 0xC8A5FFFF, 100.0f);
+        DrawText(295, 356, 10, 18, white, "MUSICAS");
+        DrawText(295, 382, 8, 14, grey, "Sua biblioteca");
+
+        // Card de artistas
+        DrawRect(412, 337, 194, 83, 0x171421FF, 300.0f);
+        DrawRect(426, 348, 60, 60, 0x20394AFF, 180.0f);
+        DrawRect(436, 358, 40, 40, 0x39718AFF, 120.0f);
+        DrawRect(446, 368, 20, 20, 0x8AC5D9FF, 100.0f);
+        DrawText(497, 356, 10, 18, white, "ARTISTAS");
+        DrawText(497, 382, 8, 14, grey, "Explore artistas");
+
+        // Card de playlists
+        DrawRect(614, 337, 206, 83, 0x171421FF, 300.0f);
+        DrawRect(628, 348, 60, 60, 0x4A283BFF, 180.0f);
+        DrawRect(638, 358, 40, 40, 0xA44F75FF, 120.0f);
+        DrawRect(648, 368, 20, 20, 0xE2A0BDFF, 100.0f);
+        DrawText(699, 356, 10, 18, white, "PLAYLISTS");
+        DrawText(699, 382, 8, 14, grey, "Suas colecoes");
 
         DrawText(
-            215, 82, 20, 34,
-            white,
-            "BEM-VINDO AO JEZZ"
-        );
-
-        DrawRect(
-            215, 130, 610, 155,
-            0x191425FF,
-            200.0f
-        );
-
-        DrawRect(
-            215, 130, 6, 155,
-            purple,
-            100.0f
-        );
-
-        DrawText(
-            246, 157, 12, 22,
-            purple,
-            "SUA EXPERIENCIA MUSICAL"
-        );
-
-        DrawText(
-            246, 195, 20, 34,
-            white,
-            "Sua musica. Seu espaco."
-        );
-
-        DrawText(
-            246, 239, 10, 18,
-            grey,
-            "O JEZZ esta sendo preparado."
-        );
-
-        DrawText(
-            215, 312, 14, 25,
-            white,
-            "SUA BIBLIOTECA"
-        );
-
-        DrawRect(
-            215, 350, 190, 112,
-            0x171421FF,
-            200.0f
-        );
-
-        DrawRect(
-            420, 350, 190, 112,
-            0x171421FF,
-            200.0f
-        );
-
-        DrawRect(
-            625, 350, 200, 112,
-            0x171421FF,
-            200.0f
-        );
-
-        DrawText(
-            234, 369, 11, 20,
-            purple,
-            "MUSICAS"
-        );
-
-        DrawText(
-            234, 407, 9, 16,
-            grey,
-            "Biblioteca vazia"
-        );
-
-        DrawText(
-            439, 369, 11, 20,
-            purple,
-            "ARTISTAS"
-        );
-
-        DrawText(
-            439, 407, 9, 16,
-            grey,
-            "Explore artistas"
-        );
-
-        DrawText(
-            644, 369, 11, 20,
-            purple,
-            "PLAYLISTS"
-        );
-
-        DrawText(
-            644, 407, 9, 16,
-            grey,
-            "Suas playlists"
-        );
-
-        /* CREDITO DO CRIADOR */
-
-        DrawText(
-            215, 465, 8, 14,
+            210, 426, 8, 14,
             0xC7C0D8FF,
             "DESENVOLVIDO POR: MARCELO GUILHERME"
         );
 
     } else {
+        DrawText(210, 86, 23, 38, white, pageTitles[page]);
 
-        DrawText(
-            215, 82, 22, 36,
-            white,
-            pageTitles[page]
-        );
-
-        DrawRect(
-            215, 145, 610, 280,
-            0x171421FF,
-            200.0f
-        );
-
-        DrawRect(
-            215, 145, 6, 280,
-            purple,
-            100.0f
-        );
+        DrawRect(210, 145, 610, 276, 0x171421FF, 300.0f);
+        DrawRect(210, 145, 5, 276, purple, 100.0f);
 
         if (page == 1) {
-
-            DrawText(
-                246, 185, 16, 28,
-                purple,
-                "BUSCAR MUSICAS"
-            );
-
-            DrawText(
-                246, 235, 11, 20,
-                white,
-                "A busca sera integrada nas proximas etapas."
-            );
+            DrawText(241, 177, 15, 26, purple, "BUSCAR MUSICAS");
+            DrawRect(241, 224, 548, 48, 0x242033FF, 180.0f);
+            DrawText(259, 237, 10, 18, grey, "BUSQUE POR MUSICA OU ARTISTA");
+            DrawText(241, 302, 10, 18, white, "A busca sera integrada nas proximas etapas.");
 
         } else if (page == 2) {
-
-            DrawText(
-                246, 185, 16, 28,
-                purple,
-                "SEUS ARTISTAS"
-            );
-
-            DrawText(
-                246, 235, 11, 20,
-                white,
-                "Seus artistas aparecerao aqui."
-            );
+            DrawText(241, 185, 16, 28, purple, "SEUS ARTISTAS");
+            DrawText(241, 237, 11, 20, white, "Seus artistas aparecerao aqui.");
+            DrawText(241, 273, 9, 16, grey, "Sua colecao ficara organizada nesta tela.");
 
         } else if (page == 3) {
-
-            DrawText(
-                246, 185, 16, 28,
-                purple,
-                "SEUS ALBUNS"
-            );
-
-            DrawText(
-                246, 235, 11, 20,
-                white,
-                "Sua colecao de albuns aparecera aqui."
-            );
+            DrawText(241, 185, 16, 28, purple, "SEUS ALBUNS");
+            DrawText(241, 237, 11, 20, white, "Sua colecao de albuns aparecera aqui.");
 
         } else if (page == 4) {
-
-            DrawText(
-                246, 185, 16, 28,
-                purple,
-                "SUAS PLAYLISTS"
-            );
-
-            DrawText(
-                246, 235, 11, 20,
-                white,
-                "Suas playlists aparecerao aqui."
-            );
+            DrawText(241, 185, 16, 28, purple, "SUAS PLAYLISTS");
+            DrawText(241, 237, 11, 20, white, "Suas playlists aparecerao aqui.");
 
         } else if (page == 5) {
-
-            DrawText(
-                246, 185, 16, 28,
-                purple,
-                "CONFIGURACOES"
-            );
-
-            DrawText(
-                246, 235, 12, 22,
-                white,
-                "JEZZ - Versao 0.2"
-            );
-
-            DrawText(
-                246, 285, 10, 18,
-                grey,
-                "Cima/Baixo: navegar"
-            );
-
-            DrawText(
-                246, 318, 10, 18,
-                grey,
-                "X: selecionar"
-            );
-
-            DrawText(
-                246, 351, 10, 18,
-                grey,
-                "O: voltar ao inicio"
-            );
-
-            DrawText(
-                246, 384, 10, 18,
-                grey,
-                "Triangulo: sair"
-            );
+            DrawText(241, 185, 16, 28, purple, "CONFIGURACOES");
+            DrawText(241, 237, 11, 20, white, "JEZZ - Versao 0.3");
+            DrawText(241, 285, 10, 18, grey, "Cima/Baixo: navegar");
+            DrawText(241, 318, 10, 18, grey, "X: selecionar");
+            DrawText(241, 351, 10, 18, grey, "O: voltar ao inicio");
+            DrawText(241, 384, 10, 18, grey, "Triangulo: sair");
         }
     }
 
-    DrawText(
-        215, 482, 8, 14,
-        grey,
-        "JEZZ  |  NAVEGUE COM O CONTROLE DO PS3"
-    );
+    // Player inferior
+    DrawRect(0, 447, 848, 65, 0x12101BFF, 50000.0f);
+    DrawRect(0, 447, 848, 2, 0x49336AFF, 100.0f);
+
+    DrawText(22, 458, 10, 18, white, "NADA TOCANDO");
+    DrawText(22, 483, 8, 14, grey, "Sua proxima musica aparecera aqui");
+
+    DrawText(390, 462, 10, 18, grey, "ANTERIOR");
+    DrawText(492, 462, 11, 19, white, "PLAY");
+    DrawText(568, 462, 10, 18, grey, "PROXIMA");
+
+    DrawRect(385, 493, 260, 3, 0x393344FF, 150.0f);
+    DrawRect(385, 493, 2, 3, purple, 100.0f);
+
+    DrawText(754, 462, 8, 14, grey, "VOLUME");
 }
 
-
-/* =========================================================
-   PRINCIPAL
-   ========================================================= */
 
 int main(int argc, const char *argv[]) {
 
