@@ -1,4 +1,3 @@
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -155,7 +154,8 @@ static int init_screen(gcmContextData **context,
     if (videoGetState(0, 0, &state) != 0)
         return 0;
 
-    if (state.state != 0)
+    /* CORRIGIDO: exige que a saída de vídeo esteja habilitada. */
+    if (state.state != VIDEO_STATE_ENABLED)
         return 0;
 
     if (videoGetResolution(state.displayMode.resolution,
@@ -374,6 +374,8 @@ int main(void)
         return 1;
 
     if (!init_screen(&context, host_addr, &width, &height)) {
+        if (context)
+            rsxFinish(context, 1);
         free(host_addr);
         return 1;
     }
@@ -433,8 +435,7 @@ int main(void)
             selected = 0;
 
         if (cross && !previous_cross) {
-            /* Opens the selected section.
-               Content will be added in future builds. */
+            /* Conteúdo das seções será implementado posteriormente. */
         }
 
         previous_up = up;
