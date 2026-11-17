@@ -20,53 +20,71 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y curl tar make
 
-      - name: Download PS3 toolchain
-        run: |
-          curl -fL https://cdn.hddj.top/ps3dev/ps3toolchain/releases/download/2026-06-09/ps3dev-92534e60-ubuntu-latest.tar.gz -o ps3dev.tar.gz
-          mkdir -p ps3dev
-          tar -xzf ps3dev.tar.gz -C ps3dev
-
-      - name: Locate toolchain
+      - name: Download and extract PS3 toolchain
         shell: bash
         run: |
-          RULES="$(find "$GITHUB_WORKSPACE/ps3dev" -name ppu_rules -print -quit)"
-          PPU_GCC="$(find "$GITHUB_WORKSPACE/ps3dev" -type f -path '*/ppu/bin/ppu-gcc' -print -quit)"
+          curl -fL \
+            https://cdn.hddj.top/ps3dev/ps3toolchain/releases/download/2026-06-09/ps3dev-92534e60-ubuntu-latest.tar.gz \
+            -o ps3dev.tar.gz
 
-          if [ -z "$RULES" ] || [ -z "$PPU_GCC" ]; then
-            echo "Toolchain incompleta"
+          tar -xzf ps3dev.tar.gz -C "$GITHUB_WORKSPACE"
+
+      - name: Configure PS3 environment
+        shell: bash
+        run: |
+          export PS3DEV="$GITHUB_WORKSPACE/ps3dev"
+          export PSL1GHT="$PS3DEV"
+
+          if [ ! -d "$PS3DEV" ]; then
+            echo "ERRO: pasta ps3dev nao encontrada"
             exit 1
           fi
 
-          PSL1GHT="$(dirname "$RULES")"
-          PS3DEV="$(dirname "$(dirname "$(dirname "$PPU_GCC")")")"
+          if [ ! -f "$PSL1GHT/ppu_rules" ]; then
+            echo "ERRO: ppu_rules nao encontrado em $PSL1GHT"
+            exit 1
+          fi
 
-          echo "PSL1GHT=$PSL1GHT" >> "$GITHUB_ENV"
+          if [ ! -x "$PS3DEV/ppu/bin/ppu-gcc" ]; then
+            echo "ERRO: ppu-gcc nao encontrado"
+            exit 1
+          fi
+
           echo "PS3DEV=$PS3DEV" >> "$GITHUB_ENV"
+          echo "PSL1GHT=$PSL1GHT" >> "$GITHUB_ENV"
           echo "PORTLIBS=$PS3DEV/portlibs/ppu" >> "$GITHUB_ENV"
+
           echo "$PS3DEV/bin" >> "$GITHUB_PATH"
           echo "$PS3DEV/ppu/bin" >> "$GITHUB_PATH"
 
       - name: Verify project files
+        shell: bash
         run: |
           test -f Makefile
           test -f src/main.c
-          echo "Arquivos encontrados"
+          echo "Projeto JEZZ encontrado"
 
-      - name: Build ELF
+      - name: Build JEZZ ELF
+        shell: bash
         run: |
           make clean
           make
           test -s JEZZ.elf
 
-      - name: Package JEZZ
+      - name: Build JEZZ PKG
+        shell: bash
         run: |
-          make JEZZ.pkg
-          find . -maxdepth 2 -name '*.pkg' -type f -print
+          make JEZZ.pkg \
+            TITLE="JEZZ" \
+            APPID="JEZZ00001" \
+            CONTENTID="UP0001-JEZZ00001_00-0000000000000000"
 
-      - name: Upload build files
+          test -s JEZZ.pkg
+
+      - name: Upload JEZZ files
         uses: actions/upload-artifact@v4
         with:
-          name: JEZZ-PS3-Build
+          name: JEZZ-PS3
           path: |
             JEZZ.elf
             JEZZ.pkg
