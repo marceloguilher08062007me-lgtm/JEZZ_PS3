@@ -1,30 +1,65 @@
 
-PS3DEV := /usr/local/ps3dev
-include $(PS3DEV)/ppu_rules
+.SUFFIXES:
 
-APPID := JEZZ00001
+ifeq ($(strip $(PSL1GHT)),)
+$(error PSL1GHT nao esta configurado)
+endif
+
 TITLE := JEZZ Music Player
+APPID := JEZZ00001
+CONTENTID := UP0001-$(APPID)_00-0000000000000000
+
+include $(PSL1GHT)/ppu_rules
+
 TARGET := JEZZ
+BUILD := build
+SOURCES := src
+DATA :=
+INCLUDES := include
 
-CFLAGS := -O2 -Wall
-CXXFLAGS := -O2 -Wall
-
-LDFLAGS := -L$(PS3DEV)/ppu/lib
 LIBS := -laudio -llv2 -lsysutil
 
-SOURCES := src/main.c
-OBJECTS := $(SOURCES:.c=.o)
+CFLAGS := -O2 -Wall -mcpu=cell $(MACHDEP)
+LDFLAGS := $(MACHDEP)
 
-all: $(TARGET).elf
+ifneq ($(BUILD),$(notdir $(CURDIR)))
 
-$(TARGET).elf: $(OBJECTS)
-	$(CC) $(OBJECTS) -o $@ $(LDFLAGS) $(LIBS)
+export OUTPUT := $(CURDIR)/$(TARGET)
+export VPATH := $(foreach dir,$(SOURCES),$(CURDIR)/$(dir))
+export DEPSDIR := $(CURDIR)/$(BUILD)
+export BUILDDIR := $(CURDIR)/$(BUILD)
 
-%.o: %.c
-	$(CC) $(CFLAGS) -I$(PS3DEV)/ppu/include -c $< -o $@
+CFILES := $(foreach dir,$(SOURCES),$(notdir $(wildcard $(dir)/*.c)))
 
-clean:
-	rm -f $(OBJECTS) $(TARGET).elf $(TARGET).self $(TARGET).pkg
+export LD := $(CC)
+export OFILES := $(CFILES:.c=.o)
+
+export INCLUDE := $(foreach dir,$(INCLUDES),-I$(CURDIR)/$(dir)) \
+$(LIBPSL1GHT_INC) \
+-I$(CURDIR)/$(BUILD) \
+-I$(PORTLIBS)/include
+
+export LIBPATHS := $(LIBPSL1GHT_LIB) -L$(PORTLIBS)/lib
 
 .PHONY: all clean
 
+all: $(BUILD)
+
+$(BUILD):
+	@mkdir -p $@
+	@$(MAKE) --no-print-directory -C $(BUILD) -f $(CURDIR)/Makefile
+
+clean:
+	rm -rf $(BUILD) $(OUTPUT).elf $(OUTPUT).self
+
+else
+
+DEPENDS := $(OFILES:.o=.d)
+
+$(OUTPUT).elf: $(OFILES)
+
+$(OUTPUT).self: $(OUTPUT).elf
+
+-include $(DEPENDS)
+
+endif
