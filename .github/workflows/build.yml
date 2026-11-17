@@ -9,7 +9,7 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
 
     steps:
       - name: Checkout
@@ -35,20 +35,8 @@ jobs:
           export PS3DEV="$GITHUB_WORKSPACE/ps3dev"
           export PSL1GHT="$PS3DEV"
 
-          if [ ! -d "$PS3DEV" ]; then
-            echo "ERRO: pasta ps3dev nao encontrada"
-            exit 1
-          fi
-
-          if [ ! -f "$PSL1GHT/ppu_rules" ]; then
-            echo "ERRO: ppu_rules nao encontrado em $PSL1GHT"
-            exit 1
-          fi
-
-          if [ ! -x "$PS3DEV/ppu/bin/ppu-gcc" ]; then
-            echo "ERRO: ppu-gcc nao encontrado"
-            exit 1
-          fi
+          test -f "$PSL1GHT/ppu_rules"
+          test -x "$PS3DEV/ppu/bin/ppu-gcc"
 
           echo "PS3DEV=$PS3DEV" >> "$GITHUB_ENV"
           echo "PSL1GHT=$PSL1GHT" >> "$GITHUB_ENV"
@@ -57,12 +45,16 @@ jobs:
           echo "$PS3DEV/bin" >> "$GITHUB_PATH"
           echo "$PS3DEV/ppu/bin" >> "$GITHUB_PATH"
 
-      - name: Verify project files
+      - name: Verify compiler
         shell: bash
+        run: |
+          ldd --version
+          ppu-gcc --version
+
+      - name: Verify project files
         run: |
           test -f Makefile
           test -f src/main.c
-          echo "Projeto JEZZ encontrado"
 
       - name: Build JEZZ ELF
         shell: bash
