@@ -1,3 +1,4 @@
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -5,11 +6,14 @@
 #include <unistd.h>
 
 #include <ppu-types.h>
-#include <ppu-lv2.h>
+#include <sys/process.h>
 #include <sysutil/video.h>
+#include <sysutil/sysutil.h>
 #include <rsx/gcm_sys.h>
 #include <rsx/rsx.h>
 #include <io/pad.h>
+
+SYS_PROCESS_PARAM(1001, 0x100000);
 
 #define MAX_BUFFERS 2
 #define HOST_SIZE (32 * 1024 * 1024)
@@ -17,7 +21,6 @@
 
 #define BLACK   0x00000000
 #define PANEL   0x00151220
-#define PANEL2  0x0020192B
 #define PURPLE  0x008A42E8
 #define PURPLE2 0x00B46CFF
 #define WHITE   0x00FFFFFF
@@ -30,6 +33,8 @@ typedef struct {
     u16 height;
     int id;
 } ScreenBuffer;
+
+static volatile int running = 1;
 
 static const unsigned char font[36][7] = {
     {14,17,17,31,17,17,17},
@@ -70,16 +75,39 @@ static const unsigned char font[36][7] = {
     {14,17,17,15,1,1,14}
 };
 
+static const char *menu_items[] = {
+    "HOME",
+    "SEARCH",
+    "ARTISTS",
+    "ALBUMS",
+    "PLAYLISTS",
+    "SETTINGS"
+};
+
+static void exit_callback(u64 status, u64 param, void *userdata)
+{
+    (void)param;
+    (void)userdata;
+
+    if (status == SYSUTIL_EXIT_GAME)
+        running = 0;
+}
+
 static int glyph_index(char c)
 {
-    if (c >= 'A' && c <= 'Z') return c - 'A';
-    if (c >= '0' && c <= '9') return 26 + c - '0';
+    if (c >= 'A' && c <= 'Z')
+        return c - 'A';
+
+    if (c >= '0' && c <= '9')
+        return 26 + c - '0';
+
     return -1;
 }
 
 static void pixel(ScreenBuffer *b, int x, int y, u32 color)
 {
-    if (x < 0 || y < 0 || x >= b->width || y >= b->height)
+    if (x < 0 || y < 0 ||
+        x >= b->width || y >= b->height)
         return;
 
     b->ptr[y * b->width + x] = color;
@@ -90,13 +118,15 @@ static void rectangle(ScreenBuffer *b, int x, int y,
 {
     int xx, yy;
 
-    for (yy = y; yy < y + h; yy++)
-        for (xx = x; xx < x + w; xx++)
+    for (yy = y; yy < y + h; yy++) {
+        for (xx = x; xx < x + w; xx++) {
             pixel(b, xx, yy, color);
+        }
+    }
 }
 
-static void text(ScreenBuffer *b, int x, int y,
-                 const char *str, int scale, u32 color)
+static void draw_text(ScreenBuffer *b, int x, int y,
+                      const char *str, int scale, u32 color)
 {
     int i, row, col;
 
@@ -107,10 +137,14 @@ static void text(ScreenBuffer *b, int x, int y,
             for (row = 0; row < 7; row++) {
                 for (col = 0; col < 5; col++) {
                     if (font[index][row] & (1 << (4 - col))) {
-                        rectangle(b,
-                                  x + col * scale,
-                                  y + row * scale,
-                                  scale, scale, color);
+                        rectangle(
+                            b,
+                            x + col * scale,
+                            y + row * scale,
+                            scale,
+                            scale,
+                            color
+                        );
                     }
                 }
             }
@@ -120,22 +154,7 @@ static void text(ScreenBuffer *b, int x, int y,
     }
 }
 
-static void wait_rsx_idle(gcmContextData *context)
-{
-    u32 value = 1;
-
-    rsxSetWriteBackendLabel(context, 255, value);
-    rsxSetWaitLabel(context, 255, value);
-
-    value++;
-
-    rsxSetWriteBackendLabel(context, 255, value);
-    rsxFlushBuffer(context);
-
-    while (*(volatile u32 *)gcmGetLabelAddress(255) != value)
-        usleep(30);
-}
-
+/* Inicialização de vídeo baseada na sequência do PSL1GHT. */
 static int init_screen(gcmContextData **context,
                        void *host_addr,
                        u16 *width,
@@ -151,10 +170,9 @@ static int init_screen(gcmContextData **context,
     if (*context == NULL)
         return 0;
 
-    if (videoGetState(0, 0, &state) != 0)
+    if (videoGetState(VIDEO_PRIMARY, 0, &state) != 0)
         return 0;
 
-    /* CORRIGIDO: exige que a saída de vídeo esteja habilitada. */
     if (state.state != VIDEO_STATE_ENABLED)
         return 0;
 
@@ -169,12 +187,10 @@ static int init_screen(gcmContextData **context,
 
     config.resolution = state.displayMode.resolution;
     config.format = VIDEO_BUFFER_FORMAT_XRGB;
-    config.pitch = resolution.width * sizeof(u32);
     config.aspect = state.displayMode.aspect;
+    config.pitch = resolution.width * 4;
 
-    wait_rsx_idle(*context);
-
-    if (videoConfigure(0, &config, NULL, 0) != 0)
+    if (videoConfigure(VIDEO_PRIMARY, &config, NULL, 0) != 0)
         return 0;
 
     gcmSetFlipMode(GCM_FLIP_VSYNC);
@@ -186,8 +202,8 @@ static int init_screen(gcmContextData **context,
 static int create_buffer(ScreenBuffer *b,
                          u16 width, u16 height, int id)
 {
-    u32 size = width * height * sizeof(u32);
-    u32 pitch = width * sizeof(u32);
+    u32 size = (u32)width * height * 4;
+    u32 pitch = (u32)width * 4;
 
     b->ptr = (u32 *)rsxMemalign(64, size);
 
@@ -196,12 +212,14 @@ static int create_buffer(ScreenBuffer *b,
 
     if (rsxAddressToOffset(b->ptr, &b->offset) != 0) {
         rsxFree(b->ptr);
+        b->ptr = NULL;
         return 0;
     }
 
     if (gcmSetDisplayBuffer(id, b->offset,
                             pitch, width, height) != 0) {
         rsxFree(b->ptr);
+        b->ptr = NULL;
         return 0;
     }
 
@@ -214,6 +232,7 @@ static int create_buffer(ScreenBuffer *b,
     return 1;
 }
 
+/* Aguarda a troca de quadro antes de reutilizar o buffer. */
 static void wait_flip(void)
 {
     while (gcmGetFlipStatus() != 0)
@@ -229,56 +248,62 @@ static void show_buffer(gcmContextData *context, int id)
     gcmSetWaitFlip(context);
 }
 
-static const char *menu_items[] = {
-    "HOME",
-    "SEARCH",
-    "ARTISTS",
-    "ALBUMS",
-    "PLAYLISTS",
-    "SETTINGS"
-};
-
 static void draw_interface(ScreenBuffer *b, int selected)
 {
     int w = b->width;
     int h = b->height;
-    int scale = 3;
-    int i;
+
     int sidebar_x = w / 20;
     int sidebar_y = h / 4;
     int sidebar_w = w / 4;
     int item_h = h / 13;
 
+    int i;
+
     rectangle(b, 0, 0, w, h, BLACK);
 
-    /* Top bar */
+    /* Barra superior */
     rectangle(b, 0, 0, w, h / 7, PANEL);
     rectangle(b, 0, h / 7 - 4, w, 4, PURPLE);
 
-    text(b, sidebar_x, h / 25, "JEZZ", 5, WHITE);
-    text(b, sidebar_x + 150, h / 16, "MUSIC", 2, PURPLE2);
+    draw_text(b, sidebar_x, h / 25,
+              "JEZZ", 5, WHITE);
 
-    /* Sidebar */
+    draw_text(b, sidebar_x + 150, h / 16,
+              "MUSIC", 2, PURPLE2);
+
+    /* Menu lateral */
     rectangle(b, sidebar_x, sidebar_y,
               sidebar_w, h * 3 / 5, PANEL);
 
-    text(b, sidebar_x + 24, sidebar_y + 20,
-         "LIBRARY", 2, GREY);
+    draw_text(b, sidebar_x + 24, sidebar_y + 20,
+              "LIBRARY", 2, GREY);
 
     for (i = 0; i < 6; i++) {
         int y = sidebar_y + 65 + i * item_h;
 
         if (i == selected) {
-            rectangle(b, sidebar_x + 10, y - 12,
-                      sidebar_w - 20, item_h - 4, PURPLE);
+            rectangle(
+                b,
+                sidebar_x + 10,
+                y - 12,
+                sidebar_w - 20,
+                item_h - 4,
+                PURPLE
+            );
         }
 
-        text(b, sidebar_x + 30, y,
-             menu_items[i], scale,
-             i == selected ? WHITE : GREY);
+        draw_text(
+            b,
+            sidebar_x + 30,
+            y,
+            menu_items[i],
+            3,
+            i == selected ? WHITE : GREY
+        );
     }
 
-    /* Main content panel */
+    /* Conteudo principal */
     {
         int x = sidebar_x + sidebar_w + 35;
         int y = sidebar_y;
@@ -287,69 +312,75 @@ static void draw_interface(ScreenBuffer *b, int selected)
 
         rectangle(b, x, y, panel_w, panel_h, PANEL);
 
-        text(b, x + 35, y + 35,
-             menu_items[selected], 4, WHITE);
+        draw_text(b, x + 35, y + 35,
+                  menu_items[selected], 4, WHITE);
 
         rectangle(b, x + 35, y + 95,
                   panel_w - 70, 3, PURPLE);
 
         if (selected == 0) {
-            text(b, x + 35, y + 145,
-                 "WELCOME TO JEZZ", 3, PURPLE2);
+            draw_text(b, x + 35, y + 145,
+                      "WELCOME TO JEZZ", 3, PURPLE2);
 
-            text(b, x + 35, y + 205,
-                 "YOUR MUSIC STARTS HERE", 2, GREY);
+            draw_text(b, x + 35, y + 205,
+                      "YOUR MUSIC STARTS HERE", 2, GREY);
 
-            text(b, x + 35, y + 260,
-                 "SEARCH AND DISCOVER MUSIC", 2, GREY);
-        } else if (selected == 1) {
-            text(b, x + 35, y + 155,
-                 "ONLINE MUSIC SEARCH", 2, GREY);
+            draw_text(b, x + 35, y + 260,
+                      "SEARCH AND DISCOVER MUSIC", 2, GREY);
+        }
+        else if (selected == 1) {
+            draw_text(b, x + 35, y + 155,
+                      "ONLINE MUSIC SEARCH", 2, GREY);
 
-            text(b, x + 35, y + 210,
-                 "SEARCH FEATURE COMING SOON", 2, PURPLE2);
-        } else if (selected == 2) {
-            text(b, x + 35, y + 155,
-                 "YOUR ARTISTS", 3, GREY);
+            draw_text(b, x + 35, y + 210,
+                      "SEARCH FEATURE COMING SOON", 2, PURPLE2);
+        }
+        else if (selected == 2) {
+            draw_text(b, x + 35, y + 155,
+                      "YOUR ARTISTS", 3, GREY);
 
-            text(b, x + 35, y + 210,
-                 "ARTIST LIBRARY COMING SOON", 2, PURPLE2);
-        } else if (selected == 3) {
-            text(b, x + 35, y + 155,
-                 "YOUR ALBUMS", 3, GREY);
+            draw_text(b, x + 35, y + 210,
+                      "ARTIST LIBRARY COMING SOON", 2, PURPLE2);
+        }
+        else if (selected == 3) {
+            draw_text(b, x + 35, y + 155,
+                      "YOUR ALBUMS", 3, GREY);
 
-            text(b, x + 35, y + 210,
-                 "ALBUM LIBRARY COMING SOON", 2, PURPLE2);
-        } else if (selected == 4) {
-            text(b, x + 35, y + 155,
-                 "YOUR PLAYLISTS", 3, GREY);
+            draw_text(b, x + 35, y + 210,
+                      "ALBUM LIBRARY COMING SOON", 2, PURPLE2);
+        }
+        else if (selected == 4) {
+            draw_text(b, x + 35, y + 155,
+                      "YOUR PLAYLISTS", 3, GREY);
 
-            text(b, x + 35, y + 210,
-                 "PLAYLISTS COMING SOON", 2, PURPLE2);
-        } else {
-            text(b, x + 35, y + 155,
-                 "JEZZ SETTINGS", 3, GREY);
+            draw_text(b, x + 35, y + 210,
+                      "PLAYLISTS COMING SOON", 2, PURPLE2);
+        }
+        else {
+            draw_text(b, x + 35, y + 155,
+                      "JEZZ SETTINGS", 3, GREY);
 
-            text(b, x + 35, y + 210,
-                 "SETTINGS COMING SOON", 2, PURPLE2);
+            draw_text(b, x + 35, y + 210,
+                      "SETTINGS COMING SOON", 2, PURPLE2);
         }
     }
 
-    /* Footer */
-    text(b, sidebar_x, h - 55,
-         "UP DOWN MOVE", 2, GREY);
+    draw_text(b, sidebar_x, h - 55,
+              "UP DOWN MOVE", 2, GREY);
 
-    text(b, sidebar_x + 250, h - 55,
-         "X SELECT", 2, PURPLE2);
+    draw_text(b, sidebar_x + 250, h - 55,
+              "X SELECT", 2, PURPLE2);
 
-    text(b, w - 260, h - 55,
-         "JEZZ PREVIEW", 2, GREY);
+    draw_text(b, w - 260, h - 55,
+              "JEZZ PREVIEW", 2, GREY);
 }
 
 int main(void)
 {
     gcmContextData *context = NULL;
-    void *host_addr;
+
+    void *host_addr = NULL;
+
     ScreenBuffer buffers[MAX_BUFFERS];
 
     padInfo padinfo;
@@ -360,10 +391,11 @@ int main(void)
 
     int current_buffer = 0;
     int selected = 0;
+
     int previous_up = 0;
     int previous_down = 0;
-    int previous_cross = 0;
     int previous_circle = 0;
+
     int i;
 
     memset(buffers, 0, sizeof(buffers));
@@ -376,12 +408,20 @@ int main(void)
     if (!init_screen(&context, host_addr, &width, &height)) {
         if (context)
             rsxFinish(context, 1);
+
         free(host_addr);
         return 1;
     }
 
     for (i = 0; i < MAX_BUFFERS; i++) {
         if (!create_buffer(&buffers[i], width, height, i)) {
+            int j;
+
+            for (j = 0; j < MAX_BUFFERS; j++) {
+                if (buffers[j].ptr)
+                    rsxFree(buffers[j].ptr);
+            }
+
             rsxFinish(context, 1);
             free(host_addr);
             return 1;
@@ -390,17 +430,20 @@ int main(void)
 
     ioPadInit(7);
 
+    sysUtilRegisterCallback(0, exit_callback, NULL);
+
     draw_interface(&buffers[0], selected);
     draw_interface(&buffers[1], selected);
 
     show_buffer(context, 0);
     current_buffer = 1;
 
-    while (1) {
+    while (running) {
         int up = 0;
         int down = 0;
-        int cross = 0;
         int circle = 0;
+
+        sysUtilCheckCallback();
 
         memset(&padinfo, 0, sizeof(padinfo));
         memset(&paddata, 0, sizeof(paddata));
@@ -411,22 +454,23 @@ int main(void)
             if (ioPadGetData(0, &paddata) == 0) {
                 up = paddata.BTN_UP;
                 down = paddata.BTN_DOWN;
-                cross = paddata.BTN_CROSS;
                 circle = paddata.BTN_CIRCLE;
 
                 if (paddata.BTN_START)
-                    break;
+                    running = 0;
             }
         }
 
         if (up && !previous_up) {
             selected--;
+
             if (selected < 0)
                 selected = 5;
         }
 
         if (down && !previous_down) {
             selected++;
+
             if (selected > 5)
                 selected = 0;
         }
@@ -434,21 +478,21 @@ int main(void)
         if (circle && !previous_circle)
             selected = 0;
 
-        if (cross && !previous_cross) {
-            /* Conteúdo das seções será implementado posteriormente. */
-        }
-
         previous_up = up;
         previous_down = down;
-        previous_cross = cross;
         previous_circle = circle;
 
         wait_flip();
 
         draw_interface(&buffers[current_buffer], selected);
-        show_buffer(context, buffers[current_buffer].id);
+
+        show_buffer(
+            context,
+            buffers[current_buffer].id
+        );
 
         current_buffer++;
+
         if (current_buffer >= MAX_BUFFERS)
             current_buffer = 0;
 
@@ -459,10 +503,13 @@ int main(void)
 
     ioPadEnd();
 
-    for (i = 0; i < MAX_BUFFERS; i++)
-        rsxFree(buffers[i].ptr);
+    for (i = 0; i < MAX_BUFFERS; i++) {
+        if (buffers[i].ptr)
+            rsxFree(buffers[i].ptr);
+    }
 
     rsxFinish(context, 1);
+
     free(host_addr);
 
     return 0;
