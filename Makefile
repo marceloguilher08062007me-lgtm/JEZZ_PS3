@@ -20,7 +20,7 @@ INCLUDES := include
 LIBDIRS := $(PORTLIBS)
 
 # libcurl + PolarSSL habilitam comunicacao HTTPS no PS3.
-LIBS := -lfont3d -lfreetype -lpng -lpngdec -ltiny3d -lrsx -lz -lsimdmath -lgcm_sys -lio -lcurl -lpolarssl -lnet -lsysutil -lsysmodule -lrt -llv2 -lm
+LIBS := -lfont3d -lfreetype -lpng -lpngdec -ltiny3d -lrsx -lsimdmath -lgcm_sys -lio -lcurl -lpolarssl -lnet -lsysutil -lsysmodule -lz -lrt -llv2 -lm
 
 CFLAGS = -O2 -Wall -mcpu=cell $(MACHDEP) $(INCLUDE) -I$(PORTLIBS)/include/freetype2
 CXXFLAGS = $(CFLAGS)
