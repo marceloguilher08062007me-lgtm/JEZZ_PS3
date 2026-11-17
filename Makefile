@@ -5,22 +5,14 @@ ifeq ($(strip $(PSL1GHT)),)
 $(error PSL1GHT nao esta configurado)
 endif
 
-TITLE := JEZZ Music Player
-APPID := JEZZ00001
-CONTENTID := UP0001-$(APPID)_00-0000000000000000
-
 include $(PSL1GHT)/ppu_rules
 
 TARGET := JEZZ
 BUILD := build
 SOURCES := src
-DATA :=
 INCLUDES := include
 
 LIBS := -laudio -llv2 -lsysutil
-
-CFLAGS := -O2 -Wall -mcpu=cell $(MACHDEP)
-LDFLAGS := $(MACHDEP)
 
 ifneq ($(BUILD),$(notdir $(CURDIR)))
 
@@ -35,11 +27,14 @@ export LD := $(CC)
 export OFILES := $(CFILES:.c=.o)
 
 export INCLUDE := $(foreach dir,$(INCLUDES),-I$(CURDIR)/$(dir)) \
-$(LIBPSL1GHT_INC) \
--I$(CURDIR)/$(BUILD) \
--I$(PORTLIBS)/include
+                  $(LIBPSL1GHT_INC) \
+                  -I$(CURDIR)/$(BUILD) \
+                  -I$(PORTLIBS)/include
 
+export CFLAGS := -O2 -Wall -mcpu=cell $(MACHDEP) $(INCLUDE)
+export LDFLAGS := $(MACHDEP)
 export LIBPATHS := $(LIBPSL1GHT_LIB) -L$(PORTLIBS)/lib
+export LIBS
 
 .PHONY: all clean
 
