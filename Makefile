@@ -19,7 +19,8 @@ PKGFILES := $(CURDIR)/pkgfiles
 INCLUDES := include
 LIBDIRS := $(PORTLIBS)
 
-LIBS := -lfont3d -lfreetype -lpng -lpngdec -ltiny3d -lrsx -lz -lsimdmath -lgcm_sys -lio -lsysutil -lrt -llv2 -lsysmodule -lm
+# libcurl + PolarSSL habilitam comunicacao HTTPS no PS3.
+LIBS := -lfont3d -lfreetype -lpng -lpngdec -ltiny3d -lrsx -lz -lsimdmath -lgcm_sys -lio -lcurl -lpolarssl -lnet -lsysutil -lsysmodule -lrt -llv2 -lm
 
 CFLAGS = -O2 -Wall -mcpu=cell $(MACHDEP) $(INCLUDE) -I$(PORTLIBS)/include/freetype2
 CXXFLAGS = $(CFLAGS)
