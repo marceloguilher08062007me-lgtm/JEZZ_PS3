@@ -9,10 +9,15 @@ include $(PSL1GHT)/ppu_rules
 
 TARGET := JEZZ
 BUILD := build
+
 SOURCES := src
 INCLUDES := include
 
-LIBS := -laudio -llv2 -lsysutil
+TITLE := JEZZ MUSIC
+APPID := JEZZ00001
+CONTENTID := UP0001-JEZZ00001_00-0000000000000000
+
+LIBS := -lgcm_sys -lrsx -lio -lsysutil -llv2 -laudio
 
 ifneq ($(BUILD),$(notdir $(CURDIR)))
 
