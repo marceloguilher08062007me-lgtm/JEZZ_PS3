@@ -1,14 +1,11 @@
-name: JEZZ PS3 Build
 
-on:
-  push:
-    branches: [main]
-  workflow_dispatch:
-
-jobs:
-  build:
-    runs-on: ubuntu-latest
-
+      - name: Build JEZZ PKG
+        run: |
+          make clean
+          make
+          test -f JEZZ.elf
+          make JEZZ.pkg
+          
     steps:
       - name: Checkout
         uses: actions/checkout@v4
