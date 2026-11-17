@@ -742,6 +742,14 @@ int main(int argc, const char *argv[]) {
 
     if (tiny3d_Init(1024 * 1024) != TINY3D_OK)
         return 1;
+    // Ajuste da area virtual para a tela da TV.
+    tiny3d_UserViewport(
+        1, 0.0f, 0.0f,
+        (float)Video_Resolution.width / 848.0f,
+        (float)Video_Resolution.height / 512.0f,
+        (float)Video_Resolution.width / 1920.0f,
+        (float)Video_Resolution.height / 1080.0f
+    );
 
     ioPadInit(7);
 
