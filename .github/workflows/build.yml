@@ -1,3 +1,4 @@
+
 name: JEZZ PS3 Build
 
 on:
@@ -19,9 +20,9 @@ jobs:
       - name: Install build tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y curl tar make git wget patch autoconf automake libtool pkg-config build-essential
+          sudo apt-get install -y curl tar make git wget patch autoconf automake libtool pkg-config build-essential file
 
-      - name: Download PS3 toolchain (retry and resume)
+      - name: Download PS3 toolchain
         shell: bash
         run: |
           set -euo pipefail
@@ -32,20 +33,19 @@ jobs:
           DOWNLOADED=0
 
           for attempt in {1..8}; do
-            echo "Download da toolchain: tentativa $attempt/8"
+            echo "Download: tentativa $attempt/8"
             if wget --continue --timeout=30 --tries=3 --waitretry=5 \
-                --retry-connrefused --directory-prefix="$RUNNER_TEMP" "$TOOLCHAIN_URL"; then
+              --retry-connrefused --directory-prefix="$RUNNER_TEMP" "$TOOLCHAIN_URL"; then
               if tar -tzf "$ARCHIVE" >/dev/null 2>&1; then
                 DOWNLOADED=1
                 break
               fi
-              echo "Arquivo ainda incompleto; tentando continuar o download..."
             fi
             sleep $((attempt * 5))
           done
 
           if [ "$DOWNLOADED" -ne 1 ]; then
-            echo "Falha ao baixar/verificar a toolchain após várias tentativas."
+            echo "Falha no download da toolchain."
             exit 1
           fi
 
@@ -54,9 +54,12 @@ jobs:
       - name: Configure PS3 environment
         shell: bash
         run: |
+          set -euo pipefail
+
           RULES="$(find "$GITHUB_WORKSPACE/ps3dev" -name ppu_rules -print -quit)"
+
           if [ -z "$RULES" ]; then
-            echo "ppu_rules nao encontrado na toolchain"
+            echo "ppu_rules não encontrado."
             exit 1
           fi
 
@@ -64,6 +67,7 @@ jobs:
           PORTLIBS="$PS3DEV/portlibs/ppu"
 
           test -x "$PS3DEV/ppu/bin/ppu-gcc"
+
           mkdir -p "$PORTLIBS/include" "$PORTLIBS/lib"
 
           echo "PS3DEV=$PS3DEV" >> "$GITHUB_ENV"
@@ -71,8 +75,10 @@ jobs:
           echo "PORTLIBS=$PORTLIBS" >> "$GITHUB_ENV"
           echo "PATH=$PS3DEV/bin:$PS3DEV/ppu/bin:$PORTLIBS/bin:$PATH" >> "$GITHUB_ENV"
 
-      - name: Build PolarSSL and libcurl for PS3
+      - name: Build PolarSSL and libcurl
         run: |
+          set -euo pipefail
+
           git clone --depth 1 https://github.com/bucanero/ps3libraries.git "$RUNNER_TEMP/ps3libraries"
           cd "$RUNNER_TEMP/ps3libraries/scripts"
 
@@ -86,6 +92,8 @@ jobs:
 
       - name: Build and install Tiny3D
         run: |
+          set -euo pipefail
+
           git clone --depth 1 https://github.com/wargio/tiny3D.git "$RUNNER_TEMP/tiny3D"
 
           make -C "$RUNNER_TEMP/tiny3D/lib" clean
@@ -101,12 +109,71 @@ jobs:
 
       - name: Prepare HTTPS certificate bundle
         run: |
+          set -euo pipefail
           mkdir -p pkgfiles/USRDIR
           cp /etc/ssl/certs/ca-certificates.crt pkgfiles/USRDIR/cacert.pem
           test -s pkgfiles/USRDIR/cacert.pem
 
+      - name: Diagnose audio libraries
+        shell: bash
+        run: |
+          set -u
+
+          echo "========== AUDIO LIBRARIES =========="
+
+          for lib in \
+            libaudioplayer.a \
+            libmad.a \
+            libvorbisfile.a \
+            libvorbis.a \
+            libogg.a \
+            libaudio.a
+          do
+            echo "Checking $lib"
+
+            find "$PORTLIBS/lib" "$PSL1GHT/ppu/lib" \
+              -name "$lib" -type f -print 2>/dev/null || true
+          done
+
+          echo "========== AUDIO HEADERS =========="
+
+          find "$PORTLIBS/include" "$PSL1GHT/ppu/include" \
+            -type f \( \
+              -iname 'audioplayer.h' \
+              -o -iname 'spu_soundlib.h' \
+              -o -iname 'mad.h' \
+              -o -iname 'audio.h' \
+              -o -iname '*vorbis*.h' \
+              -o -iname '*ogg*.h' \
+            \) -print 2>/dev/null || true
+
+          echo "========== SYMBOLS: AUDIOPLAYER =========="
+
+          if [ -s "$PORTLIBS/lib/libaudioplayer.a" ]; then
+            ppu-nm -u "$PORTLIBS/lib/libaudioplayer.a" || true
+          else
+            echo "libaudioplayer.a não encontrada no runner."
+          fi
+
+          echo "========== SYMBOLS: MAD =========="
+
+          if [ -s "$PORTLIBS/lib/libmad.a" ]; then
+            ppu-nm -u "$PORTLIBS/lib/libmad.a" || true
+          fi
+
+          echo "========== SYMBOLS: VORBIS =========="
+
+          if [ -s "$PORTLIBS/lib/libvorbisfile.a" ]; then
+            ppu-nm -u "$PORTLIBS/lib/libvorbisfile.a" || true
+          fi
+
+          echo "========== TOOLCHAIN =========="
+          ppu-gcc --version
+          ppu-nm --version
+
       - name: Verify JEZZ files
         run: |
+          set -euo pipefail
           test -s Makefile
           test -s src/main.cpp
           test -s ICON0.PNG
@@ -115,6 +182,7 @@ jobs:
 
       - name: Build JEZZ
         run: |
+          set -euo pipefail
           make clean
           make
           test -s JEZZ.elf
@@ -122,6 +190,7 @@ jobs:
 
       - name: Package JEZZ
         run: |
+          set -euo pipefail
           make pkg
           test -s JEZZ.pkg
 
