@@ -1,17 +1,10 @@
 
 #include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-
-#include <sys/process.h>
-#include <sysutil/sysutil.h>
 #include <audio/audio.h>
 
 int main(void)
 {
-    printf("================================\n");
-    printf("          JEZZ MUSIC\n");
-    printf("================================\n");
+    printf("JEZZ MUSIC\n");
 
     if (audioInit() != 0)
     {
@@ -26,4 +19,3 @@ int main(void)
 
     return 0;
 }
-
