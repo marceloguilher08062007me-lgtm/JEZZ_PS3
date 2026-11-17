@@ -6,6 +6,7 @@
 #include <unistd.h>
 
 #include <ppu-types.h>
+#include <ppu-lv2.h>
 #include <sys/process.h>
 #include <sysutil/video.h>
 #include <sysutil/sysutil.h>
@@ -18,6 +19,7 @@ SYS_PROCESS_PARAM(1001, 0x100000);
 #define MAX_BUFFERS 2
 #define HOST_SIZE (32 * 1024 * 1024)
 #define CB_SIZE 0x100000
+#define GCM_LABEL_INDEX 255
 
 #define BLACK   0x00000000
 #define PANEL   0x00151220
@@ -154,7 +156,28 @@ static void draw_text(ScreenBuffer *b, int x, int y,
     }
 }
 
-/* Inicialização de vídeo baseada na sequência do PSL1GHT. */
+/* Sincronizacao do RSX baseada no exemplo oficial do PSL1GHT. */
+static void wait_finish(gcmContextData *context, u32 value)
+{
+    rsxSetWriteBackendLabel(context, GCM_LABEL_INDEX, value);
+    rsxFlushBuffer(context);
+
+    while (*(vu32 *)gcmGetLabelAddress(GCM_LABEL_INDEX) != value)
+        usleep(30);
+}
+
+static void wait_rsx_idle(gcmContextData *context)
+{
+    u32 value = 1;
+
+    rsxSetWriteBackendLabel(context, GCM_LABEL_INDEX, value);
+    rsxSetWaitLabel(context, GCM_LABEL_INDEX, value);
+
+    value++;
+    wait_finish(context, value);
+}
+
+/* Inicializacao de video com sincronizacao antes da configuracao. */
 static int init_screen(gcmContextData **context,
                        void *host_addr,
                        u16 *width,
@@ -190,7 +213,12 @@ static int init_screen(gcmContextData **context,
     config.aspect = state.displayMode.aspect;
     config.pitch = resolution.width * 4;
 
+    wait_rsx_idle(*context);
+
     if (videoConfigure(VIDEO_PRIMARY, &config, NULL, 0) != 0)
+        return 0;
+
+    if (videoGetState(VIDEO_PRIMARY, 0, &state) != 0)
         return 0;
 
     gcmSetFlipMode(GCM_FLIP_VSYNC);
@@ -241,11 +269,16 @@ static void wait_flip(void)
     gcmResetFlipStatus();
 }
 
-static void show_buffer(gcmContextData *context, int id)
+/* So confirma a troca quando gcmSetFlip aceita o comando. */
+static int show_buffer(gcmContextData *context, int id)
 {
-    gcmSetFlip(context, id);
+    if (gcmSetFlip(context, id) != 0)
+        return 0;
+
     rsxFlushBuffer(context);
     gcmSetWaitFlip(context);
+
+    return 1;
 }
 
 static void draw_interface(ScreenBuffer *b, int selected)
@@ -378,7 +411,6 @@ static void draw_interface(ScreenBuffer *b, int selected)
 int main(void)
 {
     gcmContextData *context = NULL;
-
     void *host_addr = NULL;
 
     ScreenBuffer buffers[MAX_BUFFERS];
@@ -435,7 +467,18 @@ int main(void)
     draw_interface(&buffers[0], selected);
     draw_interface(&buffers[1], selected);
 
-    show_buffer(context, 0);
+    if (!show_buffer(context, 0)) {
+        for (i = 0; i < MAX_BUFFERS; i++) {
+            if (buffers[i].ptr)
+                rsxFree(buffers[i].ptr);
+        }
+
+        ioPadEnd();
+        rsxFinish(context, 1);
+        free(host_addr);
+        return 1;
+    }
+
     current_buffer = 1;
 
     while (running) {
@@ -486,10 +529,10 @@ int main(void)
 
         draw_interface(&buffers[current_buffer], selected);
 
-        show_buffer(
-            context,
-            buffers[current_buffer].id
-        );
+        if (!show_buffer(context, buffers[current_buffer].id)) {
+            running = 0;
+            break;
+        }
 
         current_buffer++;
 
@@ -509,7 +552,6 @@ int main(void)
     }
 
     rsxFinish(context, 1);
-
     free(host_addr);
 
     return 0;
