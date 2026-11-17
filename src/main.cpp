@@ -11,6 +11,8 @@
 
 #include <pngdec/pngdec.h>
 #include <sysmodule/sysmodule.h>
+#include <sys/thread.h>
+#include <curl/curl.h>
 
 #define JEZZ_LOGO_PATH "/dev_hdd0/game/JEZZ00001/USRDIR/assets/JEZZ_LOGO.PNG"
 
@@ -76,12 +78,257 @@ static bool g_boldFontReady = false;
 
 static bool g_pngModuleLoaded = false;
 
-// Teclado virtual da busca. A busca ainda nao consulta fontes online.
+// Teclado virtual e resultados da busca online.
 static char g_searchText[128] = {0};
 static bool g_keyboardOpen = false;
 static int g_keyboardRow = 0;
 static int g_keyboardCol = 0;
 static bool g_searchRequested = false;
+static volatile bool g_searchBusy = false;
+static bool g_searchThreadActive = false;
+static sys_ppu_thread_t g_searchThread;
+static char g_searchQuery[128] = {0};
+static char g_searchStatus[96] = "";
+static char g_resultTitle[6][128];
+static char g_resultArtist[6][96];
+static int g_resultCount = 0;
+
+struct JezzHttpBuffer { char data[65536]; size_t used; };
+static size_t JezzCurlWrite(char *ptr, size_t size, size_t nmemb, void *userdata) {
+    JezzHttpBuffer *b = (JezzHttpBuffer *)userdata;
+    size_t n = size * nmemb;
+    if (!b || b->used + n >= sizeof(b->data)) return 0;
+    memcpy(b->data + b->used, ptr, n);
+    b->used += n;
+    b->data[b->used] = 0;
+    return n;
+}
+
+static const char *JsonSkipString(const char *p, const char *end) {
+    if (!p || p >= end || *p != '"') return p;
+    ++p;
+    while (p < end) {
+        if (*p == '\\') {
+            ++p;
+            if (p < end) ++p;
+        } else if (*p == '"') {
+            return p + 1;
+        } else {
+            ++p;
+        }
+    }
+    return end;
+}
+
+static const char *JsonObjectEnd(const char *start, const char *limit) {
+    if (!start || start >= limit || *start != '{') return NULL;
+    int depth = 0;
+    const char *p = start;
+    while (p < limit) {
+        if (*p == '"') {
+            p = JsonSkipString(p, limit);
+            continue;
+        }
+        if (*p == '{') ++depth;
+        else if (*p == '}') {
+            --depth;
+            if (depth == 0) return p;
+        }
+        ++p;
+    }
+    return NULL;
+}
+
+static const char *JsonArrayEnd(const char *start, const char *limit) {
+    if (!start || start >= limit || *start != '[') return NULL;
+    int depth = 0;
+    const char *p = start;
+    while (p < limit) {
+        if (*p == '"') {
+            p = JsonSkipString(p, limit);
+            continue;
+        }
+        if (*p == '[') ++depth;
+        else if (*p == ']') {
+            --depth;
+            if (depth == 0) return p;
+        }
+        ++p;
+    }
+    return NULL;
+}
+
+static const char *JsonFindKey(const char *start, const char *end, const char *key) {
+    if (!start || !end || !key || start >= end) return NULL;
+    char pattern[48];
+    snprintf(pattern, sizeof(pattern), "\"%s\"", key);
+    size_t keyLen = strlen(pattern);
+    const char *p = start;
+    while (p < end) {
+        if (*p == '"') {
+            const char *after = JsonSkipString(p, end);
+            if ((size_t)(after - p) == keyLen &&
+                memcmp(p, pattern, keyLen) == 0) {
+                const char *v = after;
+                while (v < end && (*v == ' ' || *v == '\t' || *v == '\r' || *v == '\n')) ++v;
+                if (v < end && *v == ':') return v + 1;
+            }
+            p = after;
+        } else {
+            ++p;
+        }
+    }
+    return NULL;
+}
+
+static bool JsonReadStringRange(const char *start, const char *end,
+                                const char *key, char *out, size_t cap) {
+    if (!out || cap < 2) return false;
+    out[0] = 0;
+    const char *p = JsonFindKey(start, end, key);
+    if (!p) return false;
+    while (p < end && (*p == ' ' || *p == '\t' || *p == '\r' || *p == '\n')) ++p;
+    if (p >= end || *p != '"') return false;
+    ++p;
+    size_t n = 0;
+    while (p < end && *p != '"') {
+        unsigned char ch = (unsigned char)*p++;
+        if (ch == '\\') {
+            if (p >= end) break;
+            char esc = *p++;
+            switch (esc) {
+                case 'n': case 'r': case 't': ch = ' '; break;
+                case 'b': ch = ' '; break;
+                case 'f': ch = ' '; break;
+                case '"': ch = '"'; break;
+                case '\\': ch = '\\'; break;
+                case '/': ch = '/'; break;
+                case 'u':
+                    // Mantem o parser seguro; caracteres Unicode escapados
+                    // sao omitidos em vez de copiar sequencias JSON literais.
+                    for (int i = 0; i < 4 && p < end; ++i) ++p;
+                    ch = ' ';
+                    break;
+                default: ch = (unsigned char)esc; break;
+            }
+        }
+        if (n + 1 < cap) out[n++] = (char)ch;
+    }
+    out[n] = 0;
+    return true;
+}
+
+static void SearchAudius(const char *query) {
+    char titles[6][128];
+    char artists[6][96];
+    int resultCount = 0;
+    char statusText[96];
+    snprintf(statusText, sizeof(statusText), "%s", LanguageText("CONECTANDO AO AUDIUS...", "CONNECTING TO AUDIUS...", "CONECTANDO A AUDIUS..."));
+
+    CURL *curl = curl_easy_init();
+    if (!curl) {
+        snprintf(statusText, sizeof(statusText), "%s", LanguageText("ERRO AO INICIAR A BUSCA.", "SEARCH INITIALIZATION ERROR.", "ERROR AL INICIAR LA BÚSQUEDA."));
+        goto publish;
+    }
+
+    {
+        char *escaped = curl_easy_escape(curl, query, 0);
+        if (!escaped) {
+            curl_easy_cleanup(curl);
+            snprintf(statusText, sizeof(statusText), "%s", "ERRO NO TEXTO DA BUSCA.");
+            goto publish;
+        }
+
+        char url[512];
+        snprintf(url, sizeof(url), "https://api.audius.co/v1/tracks/search?query=%s&limit=6", escaped);
+        curl_free(escaped);
+
+        JezzHttpBuffer response;
+        memset(&response, 0, sizeof(response));
+        curl_easy_setopt(curl, CURLOPT_URL, url);
+        curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, JezzCurlWrite);
+        curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response);
+        curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
+        curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 10L);
+        curl_easy_setopt(curl, CURLOPT_TIMEOUT, 20L);
+        curl_easy_setopt(curl, CURLOPT_NOSIGNAL, 1L);
+        curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 1L);
+        curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 2L);
+        curl_easy_setopt(curl, CURLOPT_USERAGENT, "JEZZ-PS3/0.8");
+
+        CURLcode rc = curl_easy_perform(curl);
+        long httpStatus = 0;
+        curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &httpStatus);
+        curl_easy_cleanup(curl);
+
+        if (rc != CURLE_OK || httpStatus != 200) {
+            snprintf(statusText, sizeof(statusText), "%s", LanguageText("FALHA NA CONEXÃO. TENTE NOVAMENTE.", "CONNECTION FAILED. TRY AGAIN.", "FALLO DE CONEXIÓN. INTENTA OTRA VEZ."));
+            goto publish;
+        }
+
+        const char *dataKey = strstr(response.data, "\"data\"");
+        const char *arrayStart = dataKey ? strchr(dataKey, '[') : NULL;
+        if (!arrayStart) {
+            snprintf(statusText, sizeof(statusText), "%s", LanguageText("RESPOSTA INVÁLIDA DA FONTE.", "INVALID SOURCE RESPONSE.", "RESPUESTA NO VÁLIDA DE LA FUENTE."));
+            goto publish;
+        }
+
+        const char *arrayEnd = JsonArrayEnd(arrayStart, response.data + response.used);
+        if (!arrayEnd) {
+            snprintf(statusText, sizeof(statusText), "%s", LanguageText("RESPOSTA JSON INCOMPLETA.", "INCOMPLETE JSON RESPONSE.", "RESPUESTA JSON INCOMPLETA."));
+            goto publish;
+        }
+        const char *p = arrayStart + 1;
+        while (p < arrayEnd && resultCount < 6) {
+            while (p < arrayEnd && (*p == ' ' || *p == '\t' || *p == '\r' || *p == '\n' || *p == ',')) ++p;
+            if (p >= arrayEnd) break;
+            if (*p != '{') { ++p; continue; }
+
+            const char *objectEnd = JsonObjectEnd(p, arrayEnd);
+            if (!objectEnd) break;
+
+            char title[128] = "";
+            char artist[96] = "Audius";
+            if (JsonReadStringRange(p, objectEnd + 1, "title", title, sizeof(title)) && title[0]) {
+                const char *userValue = JsonFindKey(p, objectEnd + 1, "user");
+                if (userValue) {
+                    while (userValue < objectEnd && (*userValue == ' ' || *userValue == '\t' || *userValue == '\r' || *userValue == '\n')) ++userValue;
+                    if (userValue < objectEnd && *userValue == '{') {
+                        const char *userEnd = JsonObjectEnd(userValue, objectEnd + 1);
+                        if (userEnd) JsonReadStringRange(userValue, userEnd + 1, "name", artist, sizeof(artist));
+                    }
+                }
+                strncpy(titles[resultCount], title, sizeof(titles[0]) - 1);
+                titles[resultCount][sizeof(titles[0]) - 1] = 0;
+                strncpy(artists[resultCount], artist, sizeof(artists[0]) - 1);
+                artists[resultCount][sizeof(artists[0]) - 1] = 0;
+                ++resultCount;
+            }
+            p = objectEnd + 1;
+        }
+
+        if (resultCount)
+            snprintf(statusText, sizeof(statusText), "%d %s", resultCount, LanguageText("RESULTADOS - AUDIUS", "RESULTS - AUDIUS", "RESULTADOS - AUDIUS"));
+        else
+            snprintf(statusText, sizeof(statusText), "%s", LanguageText("NENHUMA FAIXA ENCONTRADA.", "NO TRACKS FOUND.", "NO SE ENCONTRARON CANCIONES."));
+    }
+
+publish:
+    // Publica os resultados somente depois que a resposta estiver pronta.
+    memset(g_resultTitle, 0, sizeof(g_resultTitle));
+    memset(g_resultArtist, 0, sizeof(g_resultArtist));
+    for (int i = 0; i < resultCount; ++i) {
+        strncpy(g_resultTitle[i], titles[i], sizeof(g_resultTitle[i]) - 1);
+        strncpy(g_resultArtist[i], artists[i], sizeof(g_resultArtist[i]) - 1);
+    }
+    g_resultCount = resultCount;
+    snprintf(g_searchStatus, sizeof(g_searchStatus), "%s", statusText);
+}
+
+static void AudiusSearchThread(void *arg) {
+    SearchAudius((const char *)arg);
+    g_searchBusy = false;
+}
 
 static const char *g_keyboardKeys[4][10] = {
     {"A","B","C","D","E","F","G","H","I","J"},
@@ -997,7 +1244,12 @@ static void DrawScreen(int selected, int page, int focusArea, int contentRow, in
                 DrawVirtualKeyboard();
             } else {
                 DrawText(224, 322, 9, 15, purple, LanguageText("X: ABRIR TECLADO VIRTUAL", "X: OPEN VIRTUAL KEYBOARD", "X: ABRIR TECLADO VIRTUAL"));
-                DrawText(224, 350, 8, 13, grey, LanguageText("A BUSCA ONLINE SERÁ CONECTADA EM UMA PRÓXIMA ETAPA.", "ONLINE SEARCH WILL BE CONNECTED IN A FUTURE UPDATE.", "LA BÚSQUEDA ONLINE SE CONECTARÁ EN UNA PRÓXIMA VERSIÓN."));
+                DrawText(224, 315, 8, 13, purple, g_searchStatus[0] ? g_searchStatus : LanguageText("DIGITE E PRESSIONE OK PARA PESQUISAR.", "TYPE AND PRESS OK TO SEARCH.", "ESCRIBE Y PULSA OK PARA BUSCAR."));
+                for (int i = 0; i < g_resultCount && i < 5; ++i) {
+                    char line[180];
+                    snprintf(line, sizeof(line), "%d. %s - %s", i + 1, g_resultTitle[i], g_resultArtist[i]);
+                    DrawText(224, 340 + i * 17, 7, 12, white, line);
+                }
             }
 
         } else if (page == 2) {
@@ -1127,6 +1379,9 @@ int main(int argc, const char *argv[]) {
 
     ioPadInit(7);
     LoadSettings();
+    // A pilha de rede do sistema deve estar ativa para o libcurl.
+    sysModuleLoad(SYSMODULE_NET);
+    curl_global_init(CURL_GLOBAL_DEFAULT);
 
     if (sysModuleLoad(SYSMODULE_PNGDEC) == 0) {
         g_pngModuleLoaded = true;
@@ -1182,7 +1437,26 @@ int main(int argc, const char *argv[]) {
         const bool l2 = pad.BTN_L2 != 0;
         const bool r2 = pad.BTN_R2 != 0;
 
-        // Quando aberto, o teclado virtual recebe os direcionais e X.
+        // A busca roda em uma thread separada para nao congelar a interface.
+        if (g_searchThreadActive && !g_searchBusy) {
+            u64 threadResult = 0;
+            sysThreadJoin(g_searchThread, &threadResult);
+            g_searchThreadActive = false;
+        }
+        if (g_searchRequested && !g_searchBusy && !g_searchThreadActive) {
+            g_searchRequested = false;
+            strncpy(g_searchQuery, g_searchText, sizeof(g_searchQuery) - 1);
+            g_searchQuery[sizeof(g_searchQuery) - 1] = 0;
+            g_searchBusy = true;
+            if (sysThreadCreate(&g_searchThread, AudiusSearchThread, g_searchQuery,
+                                1001, 0x10000, THREAD_JOINABLE, (char *)"JEZZ_AUDIUS") == 0) {
+                g_searchThreadActive = true;
+            } else {
+                g_searchBusy = false;
+                snprintf(g_searchStatus, sizeof(g_searchStatus), "%s", LanguageText("NAO FOI POSSIVEL INICIAR A BUSCA.", "COULD NOT START SEARCH.", "NO SE PUDO INICIAR LA BUSQUEDA."));
+            }
+        }
+
         if (g_keyboardOpen) {
             if (up && !previousUp) g_keyboardRow = (g_keyboardRow + 3) % 4;
             if (down && !previousDown) g_keyboardRow = (g_keyboardRow + 1) % 4;
@@ -1441,6 +1715,13 @@ int main(int argc, const char *argv[]) {
     }
 
     ioPadEnd();
+
+    if (g_searchThreadActive) {
+        u64 threadResult = 0;
+        sysThreadJoin(g_searchThread, &threadResult);
+        g_searchThreadActive = false;
+    }
+    curl_global_cleanup();
 
     if (g_pngModuleLoaded)
         sysModuleUnload(SYSMODULE_PNGDEC);
