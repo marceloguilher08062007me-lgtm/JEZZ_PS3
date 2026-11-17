@@ -335,12 +335,18 @@ int main(int argc, const char *argv[]) {
         tiny3d_AlphaTest(1, 0x10, TINY3D_ALPHA_FUNC_GEQUAL);
         tiny3d_BlendFunc(
             1,
-            TINY3D_BLEND_FUNC_SRC_RGB_SRC_ALPHA |
-                TINY3D_BLEND_FUNC_SRC_ALPHA_SRC_ALPHA,
-            TINY3D_BLEND_FUNC_DST_RGB_ONE_MINUS_SRC_ALPHA |
-                TINY3D_BLEND_FUNC_DST_ALPHA_ZERO,
-            TINY3D_BLEND_RGB_FUNC_ADD |
+            static_cast<blend_src_func>(
+                TINY3D_BLEND_FUNC_SRC_RGB_SRC_ALPHA |
+                TINY3D_BLEND_FUNC_SRC_ALPHA_SRC_ALPHA
+            ),
+            static_cast<blend_dst_func>(
+                TINY3D_BLEND_FUNC_DST_RGB_ONE_MINUS_SRC_ALPHA |
+                TINY3D_BLEND_FUNC_DST_ALPHA_ZERO
+            ),
+            static_cast<blend_func>(
+                TINY3D_BLEND_RGB_FUNC_ADD |
                 TINY3D_BLEND_ALPHA_FUNC_ADD
+            )
         );
 
         tiny3d_Project2D();
