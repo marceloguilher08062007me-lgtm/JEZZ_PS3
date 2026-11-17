@@ -56,7 +56,7 @@ static void TTFToBitmap(
 
     FT_Set_Pixel_Sizes(
         g_ftFace,
-        (FT_UInt)*w,
+        0,
         (FT_UInt)*h
     );
 
@@ -114,7 +114,7 @@ static bool InitFont(void) {
         return false;
 
     const char *fontPath =
-        "/dev_flash/data/font/SCE-PS3-VR-R-LATIN2.TTF";
+        "/dev_hdd0/game/JEZZ00001/USRDIR/assets/JEZZ_FONT.ttf";
 
     if (FT_New_Face(g_ftLibrary, fontPath, 0, &g_ftFace)) {
 
@@ -142,7 +142,7 @@ static bool InitFont(void) {
         (u8 *)fontTexture,
         32,
         126,
-        32,
+        64,
         64,
         TTFToBitmap
     );
