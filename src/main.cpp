@@ -1,6 +1,13 @@
-#include <io/pad.h>
-#include <NoRSX.h>
+#include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
+
+#include <io/pad.h>
+#include <tiny3d.h>
+#include <libfont.h>
+
+#include <ft2build.h>
+#include <freetype/freetype.h>
 
 static const int MENU_COUNT = 6;
 
@@ -22,234 +29,246 @@ static const char *pageTitles[MENU_COUNT] = {
     "AJUSTES"
 };
 
-static void drawScreen(
-    NoRSX *gfx,
-    Background *background,
-    Object *objects,
-    Font *font,
-    int selected,
-    int page
+static FT_Library g_ftLibrary;
+static FT_Face g_ftFace;
+static bool g_fontReady = false;
+
+static void TTFToBitmap(
+    u8 chr,
+    u8 *bitmap,
+    short *w,
+    short *h,
+    short *yCorrection
 ) {
-    const u32 purple = 0x9560FF;
-    const u32 white = 0xFFFFFF;
-    const u32 grey = 0xAAA5B8;
+    if (!g_ftFace || !bitmap || !w || !h || !yCorrection) {
+        if (w) *w = 0;
+        return;
+    }
 
-    background->Mono(0x090811);
+    FT_Set_Pixel_Sizes(g_ftFace, (FT_UInt)*w, (FT_UInt)*h);
 
-    // Barra superior
-    objects->Rectangle(0, 0, 1280, 96, 0x13111E);
+    if (FT_Load_Char(g_ftFace, (FT_ULong)chr, FT_LOAD_RENDER)) {
+        *w = 0;
+        return;
+    }
 
-    // Simbolo visual JEZZ
-    objects->Rectangle(38, 34, 6, 25, purple);
-    objects->Rectangle(49, 24, 6, 35, purple);
-    objects->Rectangle(60, 30, 6, 29, purple);
-    objects->Rectangle(71, 39, 6, 20, purple);
+    FT_GlyphSlot slot = g_ftFace->glyph;
+    const int inputWidth = *w;
+    const int inputHeight = *h;
 
-    font->Printf(91, 23, white, 48, "JEZZ");
-    font->Printf(250, 39, grey, 20, "MUSIC PLAYER");
+    memset(bitmap, 0, (size_t)inputWidth * (size_t)inputHeight);
 
-    // Barra lateral
-    objects->Rectangle(0, 96, 270, 624, 0x0E0C17);
+    *yCorrection = (short)(inputHeight - 1 - slot->bitmap_top);
 
-    font->Printf(35, 125, grey, 17, "MENU PRINCIPAL");
+    const int rows = (int)slot->bitmap.rows;
+    const int cols = (int)slot->bitmap.width;
+    const int pitch = (int)slot->bitmap.pitch;
 
-    // Navegacao
-    for (int i = 0; i < MENU_COUNT; i++) {
-        u32 color = grey;
-
-        if (i == selected) {
-            objects->Rectangle(
-                20,
-                151 + i * 72,
-                225,
-                53,
-                0x35234F
-            );
-
-            objects->Rectangle(
-                20,
-                151 + i * 72,
-                5,
-                53,
-                purple
-            );
-
-            color = white;
+    for (int row = 0; row < rows && row < inputHeight; ++row) {
+        const unsigned char *src;
+        if (pitch >= 0) {
+            src = slot->bitmap.buffer + row * pitch;
+        } else {
+            src = slot->bitmap.buffer + (rows - 1 - row) * (-pitch);
         }
 
-        font->Printf(
-            48,
-            165 + i * 72,
-            color,
-            24,
-            "%s",
+        for (int col = 0; col < cols && col < inputWidth; ++col) {
+            bitmap[row * inputWidth + col] = src[col];
+        }
+    }
+
+    *w = (short)(((slot->advance.x + 31) >> 6) +
+        ((slot->bitmap_left < 0) ? -slot->bitmap_left : 0));
+    *h = (short)slot->bitmap.rows;
+}
+
+static bool InitFont(void) {
+    if (FT_Init_FreeType(&g_ftLibrary)) {
+        return false;
+    }
+
+    const char *fontPath =
+        "/dev_flash/data/font/SCE-PS3-VR-R-LATIN2.TTF";
+
+    if (FT_New_Face(g_ftLibrary, fontPath, 0, &g_ftFace)) {
+        FT_Done_FreeType(g_ftLibrary);
+        g_ftFace = 0;
+        return false;
+    }
+
+    void *fontTexture = tiny3d_AllocTexture(16 * 1024 * 1024);
+    if (!fontTexture) {
+        FT_Done_Face(g_ftFace);
+        FT_Done_FreeType(g_ftLibrary);
+        g_ftFace = 0;
+        return false;
+    }
+
+    ResetFont();
+    u8 *fontEnd = AddFontFromTTF(
+        (u8 *)fontTexture,
+        32,
+        126,
+        16,
+        32,
+        TTFToBitmap
+    );
+
+    FT_Done_Face(g_ftFace);
+    FT_Done_FreeType(g_ftLibrary);
+    g_ftFace = 0;
+
+    g_fontReady = (fontEnd != 0);
+    return g_fontReady;
+}
+
+static void DrawRect(
+    float x,
+    float y,
+    float width,
+    float height,
+    u32 color,
+    float z
+) {
+    tiny3d_SetPolygon(TINY3D_QUADS);
+
+    tiny3d_VertexPos(x, y, z);
+    tiny3d_VertexColor(color);
+
+    tiny3d_VertexPos(x + width, y, z);
+    tiny3d_VertexPos(x + width, y + height, z);
+    tiny3d_VertexPos(x, y + height, z);
+
+    tiny3d_End();
+}
+
+static void DrawText(
+    float x,
+    float y,
+    int width,
+    int height,
+    u32 color,
+    const char *value
+) {
+    if (!g_fontReady || !value) {
+        return;
+    }
+
+    SetCurrentFont(0);
+    SetFontSize(width, height);
+    SetFontColor(color, 0x00000000);
+    SetFontZ(0.0f);
+    DrawString(x, y, (char *)value);
+}
+
+static void DrawScreen(int selected, int page) {
+    const u32 purple = 0x9560FFFF;
+    const u32 white  = 0xFFFFFFFF;
+    const u32 grey   = 0xAAA5B8FF;
+
+    DrawRect(0, 0, 847, 511, 0x090811FF, 65535.0f);
+    DrawRect(0, 0, 847, 66, 0x13111EFF, 50000.0f);
+    DrawRect(0, 66, 190, 445, 0x0E0C17FF, 50000.0f);
+
+    // JEZZ mark and header
+    DrawRect(24, 25, 5, 20, purple, 100.0f);
+    DrawRect(34, 17, 5, 28, purple, 100.0f);
+    DrawRect(44, 22, 5, 23, purple, 100.0f);
+    DrawRect(54, 29, 5, 16, purple, 100.0f);
+
+    DrawText(72, 13, 22, 34, white, "JEZZ");
+    DrawText(170, 25, 10, 20, grey, "MUSIC PLAYER");
+
+    DrawText(24, 84, 10, 20, grey, "MENU PRINCIPAL");
+
+    // Sidebar navigation
+    for (int i = 0; i < MENU_COUNT; ++i) {
+        const float y = 112.0f + (float)i * 51.0f;
+
+        if (i == selected) {
+            DrawRect(13, y, 163, 39, 0x35234FFF, 60.0f);
+            DrawRect(13, y, 4, 39, purple, 40.0f);
+        }
+
+        DrawText(
+            31,
+            y + 8,
+            12,
+            22,
+            (i == selected) ? white : grey,
             menuItems[i]
         );
     }
 
-    font->Printf(35, 652, purple, 18, "JEZZ v0.1");
-    font->Printf(35, 678, grey, 14, "PLAY YOUR WAY");
+    DrawText(24, 459, 10, 18, purple, "JEZZ v0.2");
+    DrawText(24, 480, 8, 14, grey, "PLAY YOUR WAY");
 
-    // Conteudo principal
+    // Main content
     if (page == 0) {
-        font->Printf(320, 145, white, 40, "BEM-VINDO AO JEZZ");
+        DrawText(215, 82, 20, 34, white, "BEM-VINDO AO JEZZ");
 
-        objects->Rectangle(
-            320, 210, 910, 205, 0x191425
-        );
+        DrawRect(215, 130, 610, 155, 0x191425FF, 200.0f);
+        DrawRect(215, 130, 6, 155, purple, 100.0f);
 
-        objects->Rectangle(
-            320, 210, 8, 205, purple
-        );
+        DrawText(246, 157, 12, 22, purple, "SUA EXPERIENCIA MUSICAL");
+        DrawText(246, 195, 20, 34, white, "Sua musica. Seu espaco.");
+        DrawText(246, 239, 10, 18, grey, "O JEZZ esta sendo preparado.");
 
-        font->Printf(
-            365, 260, purple, 21, "SUA EXPERIENCIA MUSICAL"
-        );
+        DrawText(215, 312, 14, 25, white, "SUA BIBLIOTECA");
 
-        font->Printf(
-            365, 305, white, 38, "Sua musica. Seu espaco."
-        );
+        DrawRect(215, 350, 190, 112, 0x171421FF, 200.0f);
+        DrawRect(420, 350, 190, 112, 0x171421FF, 200.0f);
+        DrawRect(625, 350, 200, 112, 0x171421FF, 200.0f);
 
-        font->Printf(
-            365, 354, grey, 21, "O JEZZ esta sendo preparado."
-        );
+        DrawText(234, 369, 11, 20, purple, "MUSICAS");
+        DrawText(234, 407, 9, 16, grey, "Biblioteca vazia");
 
-        font->Printf(
-            320, 460, white, 25, "SUA BIBLIOTECA"
-        );
+        DrawText(439, 369, 11, 20, purple, "ARTISTAS");
+        DrawText(439, 407, 9, 16, grey, "Explore artistas");
 
-        objects->Rectangle(
-            320, 505, 280, 135, 0x171421
-        );
-
-        objects->Rectangle(
-            620, 505, 280, 135, 0x171421
-        );
-
-        objects->Rectangle(
-            920, 505, 310, 135, 0x171421
-        );
-
-        font->Printf(
-            345, 535, purple, 19, "MUSICAS"
-        );
-
-        font->Printf(
-            345, 575, grey, 18, "Biblioteca vazia"
-        );
-
-        font->Printf(
-            645, 535, purple, 19, "ARTISTAS"
-        );
-
-        font->Printf(
-            645, 575, grey, 18, "Explore artistas"
-        );
-
-        font->Printf(
-            945, 535, purple, 19, "PLAYLISTS"
-        );
-
-        font->Printf(
-            945, 575, grey, 18, "Suas playlists"
-        );
+        DrawText(644, 369, 11, 20, purple, "PLAYLISTS");
+        DrawText(644, 407, 9, 16, grey, "Suas playlists");
     } else {
-        font->Printf(
-            320, 145, white, 42, "%s", pageTitles[page]
-        );
+        DrawText(215, 82, 22, 36, white, pageTitles[page]);
 
-        objects->Rectangle(
-            320, 220, 910, 310, 0x171421
-        );
-
-        objects->Rectangle(
-            320, 220, 8, 310, purple
-        );
+        DrawRect(215, 145, 610, 280, 0x171421FF, 200.0f);
+        DrawRect(215, 145, 6, 280, purple, 100.0f);
 
         if (page == 1) {
-            font->Printf(
-                365, 285, purple, 27, "BUSCAR MUSICAS"
-            );
-
-            font->Printf(
-                365, 345, white, 25, "A busca sera integrada nas proximas etapas."
-            );
+            DrawText(246, 185, 16, 28, purple, "BUSCAR MUSICAS");
+            DrawText(246, 235, 11, 20, white, "A busca sera integrada nas proximas etapas.");
         } else if (page == 2) {
-            font->Printf(
-                365, 285, purple, 27, "SEUS ARTISTAS"
-            );
-
-            font->Printf(
-                365, 345, white, 25, "Seus artistas aparecerao aqui."
-            );
+            DrawText(246, 185, 16, 28, purple, "SEUS ARTISTAS");
+            DrawText(246, 235, 11, 20, white, "Seus artistas aparecerao aqui.");
         } else if (page == 3) {
-            font->Printf(
-                365, 285, purple, 27, "SEUS ALBUNS"
-            );
-
-            font->Printf(
-                365, 345, white, 25, "Sua colecao de albuns aparecera aqui."
-            );
+            DrawText(246, 185, 16, 28, purple, "SEUS ALBUNS");
+            DrawText(246, 235, 11, 20, white, "Sua colecao de albuns aparecera aqui.");
         } else if (page == 4) {
-            font->Printf(
-                365, 285, purple, 27, "SUAS PLAYLISTS"
-            );
-
-            font->Printf(
-                365, 345, white, 25, "Suas playlists aparecerao aqui."
-            );
+            DrawText(246, 185, 16, 28, purple, "SUAS PLAYLISTS");
+            DrawText(246, 235, 11, 20, white, "Suas playlists aparecerao aqui.");
         } else if (page == 5) {
-            font->Printf(
-                365, 285, purple, 27, "CONFIGURACOES"
-            );
-
-            font->Printf(
-                365, 345, white, 23, "JEZZ - Versao 0.1"
-            );
-
-            font->Printf(
-                365, 390, grey, 20, "Cima/Baixo: navegar"
-            );
-
-            font->Printf(
-                365, 425, grey, 20, "X: selecionar"
-            );
-
-            font->Printf(
-                365, 460, grey, 20, "O: voltar ao inicio"
-            );
-
-            font->Printf(
-                365, 495, grey, 20, "Triangulo: sair"
-            );
+            DrawText(246, 185, 16, 28, purple, "CONFIGURACOES");
+            DrawText(246, 235, 12, 22, white, "JEZZ - Versao 0.2");
+            DrawText(246, 285, 10, 18, grey, "Cima/Baixo: navegar");
+            DrawText(246, 318, 10, 18, grey, "X: selecionar");
+            DrawText(246, 351, 10, 18, grey, "O: voltar ao inicio");
+            DrawText(246, 384, 10, 18, grey, "Triangulo: sair");
         }
     }
 
-    font->Printf(
-        320, 690, grey, 15,
-        "JEZZ  |  NAVEGUE COM O CONTROLE DO PS3"
-    );
-
-    (void)gfx;
+    DrawText(215, 482, 8, 14, grey, "JEZZ  |  NAVEGUE COM O CONTROLE DO PS3");
 }
 
 int main(int argc, const char *argv[]) {
     (void)argc;
     (void)argv;
 
+    if (tiny3d_Init(1024 * 1024) != TINY3D_OK) {
+        return 1;
+    }
+
     ioPadInit(7);
-
-    NoRSX GFX(RESOLUTION_AUTO, RESOLUTION_1280x720);
-
-    Background background(&GFX);
-    Object objects(&GFX);
-    Font font(JPN, &GFX);
-
-    padInfo padinfo;
-    padData pad;
-
-    memset(&padinfo, 0, sizeof(padinfo));
-    memset(&pad, 0, sizeof(pad));
+    InitFont();
 
     int selected = 0;
     int page = 0;
@@ -260,36 +279,34 @@ int main(int argc, const char *argv[]) {
     bool previousCircle = false;
     bool previousExit = false;
 
-    GFX.AppStart();
+    padInfo padinfo;
+    padData pad;
 
-    while (GFX.GetAppStatus() && !GFX.ExitSignalStatus()) {
+    while (1) {
         memset(&padinfo, 0, sizeof(padinfo));
         memset(&pad, 0, sizeof(pad));
 
         ioPadGetInfo(&padinfo);
-
         if (padinfo.status[0]) {
             ioPadGetData(0, &pad);
         }
 
-        bool up = pad.BTN_UP != 0;
-        bool down = pad.BTN_DOWN != 0;
-        bool cross = pad.BTN_CROSS != 0;
-        bool circle = pad.BTN_CIRCLE != 0;
-        bool exitButton =
-            pad.BTN_TRIANGLE != 0 || pad.BTN_START != 0;
+        const bool up = pad.BTN_UP != 0;
+        const bool down = pad.BTN_DOWN != 0;
+        const bool cross = pad.BTN_CROSS != 0;
+        const bool circle = pad.BTN_CIRCLE != 0;
+        const bool exitButton =
+            (pad.BTN_TRIANGLE != 0) || (pad.BTN_START != 0);
 
         if (up && !previousUp) {
-            selected--;
-
+            --selected;
             if (selected < 0) {
                 selected = MENU_COUNT - 1;
             }
         }
 
         if (down && !previousDown) {
-            selected++;
-
+            ++selected;
             if (selected >= MENU_COUNT) {
                 selected = 0;
             }
@@ -305,7 +322,7 @@ int main(int argc, const char *argv[]) {
         }
 
         if (exitButton && !previousExit) {
-            GFX.AppExit();
+            break;
         }
 
         previousUp = up;
@@ -314,19 +331,23 @@ int main(int argc, const char *argv[]) {
         previousCircle = circle;
         previousExit = exitButton;
 
-        drawScreen(
-            &GFX,
-            &background,
-            &objects,
-            &font,
-            selected,
-            page
+        tiny3d_Clear(0x090811FF, TINY3D_CLEAR_ALL);
+        tiny3d_AlphaTest(1, 0x10, TINY3D_ALPHA_FUNC_GEQUAL);
+        tiny3d_BlendFunc(
+            1,
+            TINY3D_BLEND_FUNC_SRC_RGB_SRC_ALPHA |
+                TINY3D_BLEND_FUNC_SRC_ALPHA_SRC_ALPHA,
+            TINY3D_BLEND_FUNC_DST_RGB_ONE_MINUS_SRC_ALPHA |
+                TINY3D_BLEND_FUNC_DST_ALPHA_ZERO,
+            TINY3D_BLEND_RGB_FUNC_ADD |
+                TINY3D_BLEND_ALPHA_FUNC_ADD
         );
 
-        GFX.Flip();
+        tiny3d_Project2D();
+        DrawScreen(selected, page);
+        tiny3d_Flip();
     }
 
     ioPadEnd();
-
     return 0;
 }

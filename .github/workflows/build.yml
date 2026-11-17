@@ -2,76 +2,94 @@ name: JEZZ PS3 Build
 
 on:
   push:
-    branches:
-      - main
+    branches: [main]
   workflow_dispatch:
+
+permissions:
+  contents: read
 
 jobs:
   build:
     runs-on: ubuntu-24.04
 
     steps:
-      - name: Checkout
+      - name: Checkout JEZZ
         uses: actions/checkout@v4
 
-      - name: Install dependencies
+      - name: Install build tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y curl tar make
+          sudo apt-get install -y curl tar make git
 
       - name: Download PS3 toolchain
-        shell: bash
         run: |
+          mkdir -p "$GITHUB_WORKSPACE/ps3dev"
           curl -fL \
-            https://cdn.hddj.top/ps3dev/ps3toolchain/releases/download/2026-06-09/ps3dev-92534e60-ubuntu-latest.tar.gz \
-            -o ps3dev.tar.gz
-          tar -xzf ps3dev.tar.gz -C "$GITHUB_WORKSPACE"
+            "https://cdn.hddj.top/ps3dev/ps3toolchain/releases/download/2026-06-09/ps3dev-92534e60-ubuntu-latest.tar.gz" \
+            -o "$RUNNER_TEMP/ps3dev.tar.gz"
+          tar -xzf "$RUNNER_TEMP/ps3dev.tar.gz" -C "$GITHUB_WORKSPACE/ps3dev"
 
       - name: Configure PS3 environment
         shell: bash
         run: |
-          RULES="$(find "$GITHUB_WORKSPACE" -name ppu_rules -type f -print -quit)"
-          test -n "$RULES"
+          RULES="$(find "$GITHUB_WORKSPACE/ps3dev" -name ppu_rules -print -quit)"
+          if [ -z "$RULES" ]; then
+            echo "ppu_rules nao encontrado na toolchain"
+            exit 1
+          fi
+
           PS3DEV="$(dirname "$RULES")"
+          PORTLIBS="$PS3DEV/portlibs/ppu"
+
           test -x "$PS3DEV/ppu/bin/ppu-gcc"
+          mkdir -p "$PORTLIBS/include" "$PORTLIBS/lib"
 
           echo "PS3DEV=$PS3DEV" >> "$GITHUB_ENV"
           echo "PSL1GHT=$PS3DEV" >> "$GITHUB_ENV"
-          echo "PORTLIBS=$PS3DEV/portlibs/ppu" >> "$GITHUB_ENV"
-          echo "$PS3DEV/bin" >> "$GITHUB_PATH"
-          echo "$PS3DEV/ppu/bin" >> "$GITHUB_PATH"
+          echo "PORTLIBS=$PORTLIBS" >> "$GITHUB_ENV"
+          echo "PATH=$PS3DEV/bin:$PS3DEV/ppu/bin:$PORTLIBS/bin:$PATH" >> "$GITHUB_ENV"
 
-      - name: Verify project and official icon
+      - name: Build and install Tiny3D
         run: |
-          test -f Makefile
-          test -f src/main.cpp
+          git clone --depth 1 https://github.com/wargio/tiny3D.git "$RUNNER_TEMP/tiny3D"
+
+          make -C "$RUNNER_TEMP/tiny3D/lib" clean
+          make -C "$RUNNER_TEMP/tiny3D/lib" install
+
+          make -C "$RUNNER_TEMP/tiny3D/libfont" clean
+          make -C "$RUNNER_TEMP/tiny3D/libfont" install
+
+          test -s "$PORTLIBS/lib/libtiny3d.a"
+          test -s "$PORTLIBS/lib/libfont3d.a"
+          test -s "$PORTLIBS/include/tiny3d.h"
+          test -s "$PORTLIBS/include/libfont.h"
+
+      - name: Verify JEZZ files
+        run: |
+          test -s Makefile
+          test -s src/main.cpp
           test -s ICON0.PNG
           file ICON0.PNG
           ppu-gcc --version
 
-      - name: Build JEZZ ELF
-        shell: bash
+      - name: Build JEZZ
         run: |
-          make clean TARGET=JEZZ
-          make TARGET=JEZZ
+          make clean
+          make
           test -s JEZZ.elf
+          test -s JEZZ.self
 
-      - name: Build JEZZ PKG with official icon
-        shell: bash
+      - name: Package JEZZ
         run: |
-          test -s ICON0.PNG
-          make pkg \
-            TARGET=JEZZ \
-            TITLE="JEZZ" \
-            APPID="JEZZ00001" \
-            CONTENTID="UP0001-JEZZ00001_00-0000000000000000"
+          make pkg
           test -s JEZZ.pkg
 
-      - name: Upload JEZZ files
+      - name: Upload JEZZ artifacts
         uses: actions/upload-artifact@v4
         with:
           name: JEZZ-PS3
           path: |
             JEZZ.elf
+            JEZZ.self
             JEZZ.pkg
           if-no-files-found: error
