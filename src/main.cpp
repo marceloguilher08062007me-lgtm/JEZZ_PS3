@@ -34,10 +34,10 @@ static const char *MenuItem(int index) {
         case 0: return LanguageText("INICIO", "HOME", "INICIO");
         case 1: return LanguageText("BUSCAR", "SEARCH", "BUSCAR");
         case 2: return LanguageText("ARTISTAS", "ARTISTS", "ARTISTAS");
-        case 3: return LanguageText("ALBUNS", "ALBUMS", "ALBUMES");
+        case 3: return LanguageText("ÁLBUNS", "ALBUMS", "ÁLBUMES");
         case 4: return LanguageText("PLAYLISTS", "PLAYLISTS", "LISTAS");
-        case 5: return LanguageText("CONFIGURACOES", "SETTINGS", "AJUSTES");
-        case 6: return LanguageText("CREDITOS", "CREDITS", "CREDITOS");
+        case 5: return LanguageText("CONFIGURAÇÕES", "SETTINGS", "AJUSTES");
+        case 6: return LanguageText("CRÉDITOS", "CREDITS", "CRÉDITOS");
         default: return LanguageText("APOIE O PROJETO", "SUPPORT PROJECT", "APOYAR PROYECTO");
     }
 }
@@ -100,7 +100,7 @@ static void TTFToBitmap(
 
     FT_Set_Pixel_Sizes(
         g_ftFace,
-        0,
+        (FT_UInt)*w,
         (FT_UInt)*h
     );
 
@@ -143,11 +143,16 @@ static void TTFToBitmap(
         }
     }
 
-    *w = (short)(
-        ((slot->advance.x + 31) >> 6) +
-        ((slot->bitmap_left < 0) ? -slot->bitmap_left : 0)
-    );
+    int advance = (int)((slot->advance.x + 31) >> 6) +
+                  ((slot->bitmap_left < 0) ? -slot->bitmap_left : 0);
 
+    // Tracking leve para evitar que as letras fiquem visualmente grudadas.
+    // O espaco recebe um avanco maior para separar claramente as palavras.
+    advance += 2;
+    if (chr == (u8)' ')
+        advance += 10;
+
+    *w = (short)advance;
     *h = (short)slot->bitmap.rows;
 }
 
@@ -174,7 +179,7 @@ static bool InitFont(void) {
     }
 
     u8 *fontEnd = AddFontFromTTF(
-        (u8 *)fontTexture, 32, 126, 64, 64, TTFToBitmap
+        (u8 *)fontTexture, 32, 255, 64, 64, TTFToBitmap
     );
 
     FT_Done_Face(g_ftFace);
@@ -192,7 +197,7 @@ static bool InitFont(void) {
 
     if (!FT_New_Face(g_ftLibrary, boldPath, 0, &g_ftFace)) {
         fontEnd = AddFontFromTTF(
-            fontEnd, 32, 126, 64, 64, TTFToBitmap
+            fontEnd, 32, 255, 64, 64, TTFToBitmap
         );
 
         FT_Done_Face(g_ftFace);
@@ -587,6 +592,61 @@ static void PlayBootAnimation(void) {
 
 
 /* =========================================================
+   CONVERSAO UTF-8 PARA LATIN-1
+   libfont trabalha com caracteres de 8 bits; esta conversao
+   permite desenhar acentos portugueses e espanhóis.
+   ========================================================= */
+
+static void UTF8ToLatin1(const char *src, char *dst, size_t dstSize) {
+    if (!dst || dstSize == 0)
+        return;
+
+    size_t out = 0;
+    const unsigned char *p = (const unsigned char *)src;
+
+    if (!p) {
+        dst[0] = '\0';
+        return;
+    }
+
+    while (*p && out + 1 < dstSize) {
+        unsigned int codepoint = 0;
+
+        if (*p < 0x80) {
+            codepoint = *p++;
+        } else if ((*p & 0xE0) == 0xC0 && p[1]) {
+            codepoint = ((unsigned int)(p[0] & 0x1F) << 6) |
+                        (unsigned int)(p[1] & 0x3F);
+            p += 2;
+        } else if ((*p & 0xF0) == 0xE0 && p[1] && p[2]) {
+            codepoint = ((unsigned int)(p[0] & 0x0F) << 12) |
+                        ((unsigned int)(p[1] & 0x3F) << 6) |
+                        (unsigned int)(p[2] & 0x3F);
+            p += 3;
+        } else if ((*p & 0xF8) == 0xF0 && p[1] && p[2] && p[3]) {
+            codepoint = ((unsigned int)(p[0] & 0x07) << 18) |
+                        ((unsigned int)(p[1] & 0x3F) << 12) |
+                        ((unsigned int)(p[2] & 0x3F) << 6) |
+                        (unsigned int)(p[3] & 0x3F);
+            p += 4;
+        } else {
+            ++p;
+            codepoint = '?';
+        }
+
+        if (codepoint == 0xA0)
+            codepoint = ' ';
+
+        dst[out++] = (codepoint <= 0xFF)
+            ? (char)codepoint
+            : '?';
+    }
+
+    dst[out] = '\0';
+}
+
+
+/* =========================================================
    TEXTO PRINCIPAL
    ========================================================= */
 
@@ -602,15 +662,18 @@ static void DrawText(
     if (!g_fontReady || !value)
         return;
 
+    char latinText[512];
+    UTF8ToLatin1(value, latinText, sizeof(latinText));
+
     SetCurrentFont(0);
 
-    SetFontSize(width, height);
+    SetFontSize(width + 1, height);
 
     SetFontColor(color, 0x00000000);
 
     SetFontZ(0.0f);
 
-    DrawString(x, y, (char *)value);
+    DrawString(x, y, latinText);
 }
 
 static void DrawTextBold(
@@ -624,11 +687,14 @@ static void DrawTextBold(
     if (!g_fontReady || !value)
         return;
 
+    char latinText[512];
+    UTF8ToLatin1(value, latinText, sizeof(latinText));
+
     SetCurrentFont(g_boldFontReady ? 1 : 0);
-    SetFontSize(width, height);
+    SetFontSize(width + 1, height);
     SetFontColor(color, 0x00000000);
     SetFontZ(0.0f);
-    DrawString(x, y, (char *)value);
+    DrawString(x, y, latinText);
 }
 
 
@@ -716,7 +782,7 @@ static void DrawPlayerBar(
 
     DrawCoverArt(18, 458, 43, 0);
     DrawTextBold(73, 458, 10, 18, white, LanguageText("NADA TOCANDO", "NOTHING PLAYING", "NADA SONANDO"));
-    DrawText(73, 482, 8, 14, grey, LanguageText("ESCOLHA UMA FAIXA", "CHOOSE A TRACK", "ELIGE UNA CANCION"));
+    DrawText(73, 482, 8, 14, grey, LanguageText("ESCOLHA UMA FAIXA", "CHOOSE A TRACK", "ELIGE UNA CANCIÓN"));
 
     // Controles do player: esquerda, play/pause, proxima e volume.
     DrawText(365, 462, 10, 17, grey, "<<");
@@ -738,7 +804,7 @@ static void DrawPlayerBar(
     DrawRect(355, 495, 250, 3, 0x393344FF, 150.0f);
     DrawRect(355, 495, 3, 3, purple, 100.0f);
 
-    DrawText(535, 459, 7, 12, grey, LanguageText("L1/R1: SECOES", "L1/R1: SECTIONS", "L1/R1: SECCIONES"));
+    DrawText(535, 459, 7, 12, grey, LanguageText("L1/R1: SEÇÕES", "L1/R1: SECTIONS", "L1/R1: SECCIONES"));
     DrawText(535, 480, 7, 12, grey, LanguageText("SELECT: PLAYER", "SELECT: PLAYER", "SELECT: REPRODUCTOR"));
     DrawText(610, 497, 7, 11, grey, LanguageText("O: SEGURE 5s", "HOLD O: 5s", "MANTENER O: 5s"));
 
@@ -798,11 +864,11 @@ static void DrawScreen(int selected, int page, int focusArea, int contentRow, in
     DrawRect(41, 18, 4, 26, purple, 100.0f);
     DrawRect(50, 25, 4, 19, purple, 100.0f);
     DrawTextBold(67, 11, 26, 40, white, "JEZZ");
-    DrawText(174, 25, 8, 15, grey, LanguageText("MUSICA", "MUSIC", "MUSICA"));
+    DrawText(174, 25, 8, 15, grey, LanguageText("MÚSICA", "MUSIC", "MÚSICA"));
 
     DrawRect(696, 17, 130, 29, 0x1B1726FF, 200.0f);
     DrawRect(708, 28, 5, 5, 0x7DDBA4FF, 100.0f);
-    DrawText(721, 25, 8, 14, grey, LanguageText("EDICAO PS3", "PS3 EDITION", "EDICION PS3"));
+    DrawText(721, 25, 8, 14, grey, LanguageText("EDIÇÃO PS3", "PS3 EDITION", "EDICIÓN PS3"));
 
     DrawSidebar(selected, focusArea, purple, white, grey);
 
@@ -817,8 +883,8 @@ static void DrawScreen(int selected, int page, int focusArea, int contentRow, in
         DrawRect(198, 136, 624, 1, 0x49336AFF, 180.0f);
 
         DrawText(218, 151, 9, 16, 0xC49BFFFF, LanguageText("DESTAQUE JEZZ", "JEZZ FEATURE", "DESTACADO JEZZ"));
-        DrawTextBold(218, 177, 18, 29, white, LanguageText("DESCUBRA SEU PROXIMO SOM", "DISCOVER YOUR NEXT SOUND", "DESCUBRE TU PROXIMO SONIDO"));
-        DrawText(218, 211, 8, 14, grey, LanguageText("Sua proxima descoberta comeca aqui.", "Your next discovery starts here.", "Tu proximo descubrimiento empieza aqui."));
+        DrawTextBold(218, 177, 18, 29, white, LanguageText("DESCUBRA SEU PRÓXIMO SOM", "DISCOVER YOUR NEXT SOUND", "DESCUBRE TU PRÓXIMO SONIDO"));
+        DrawText(218, 211, 8, 14, grey, LanguageText("Sua próxima descoberta começa aqui.", "Your next discovery starts here.", "Tu próximo descubrimiento empieza aquí."));
         DrawRect(218, 235, 139, 25, 0x65449AFF, 120.0f);
         DrawTextBold(231, 241, 8, 14, white, LanguageText("EXPLORAR AGORA", "EXPLORE NOW", "EXPLORAR AHORA"));
 
@@ -835,15 +901,15 @@ static void DrawScreen(int selected, int page, int focusArea, int contentRow, in
         DrawRect(662, 220, 4, 28, 0x65449AFF, 100.0f);
 
         // Secao de atalhos.
-        DrawTextBold(196, 285, 13, 21, white, LanguageText("EXPLORE SUA MUSICA", "EXPLORE YOUR MUSIC", "EXPLORA TU MUSICA"));
-        DrawText(754, 290, 7, 13, purple, LanguageText("VER MAIS", "SEE MORE", "VER MAS"));
+        DrawTextBold(196, 285, 13, 21, white, LanguageText("EXPLORE SUA MÚSICA", "EXPLORE YOUR MUSIC", "EXPLORA TU MÚSICA"));
+        DrawText(754, 290, 7, 13, purple, LanguageText("VER MAIS", "SEE MORE", "VER MÁS"));
 
         // Card 1.
         DrawRect(194, 316, 202, 109, 0x15121FFF, 320.0f);
         DrawRect(194, 316, 202, 1, 0x302442FF, 180.0f);
         DrawCoverArt(207, 329, 82, 0);
-        DrawTextBold(300, 342, 10, 18, white, LanguageText("MUSICAS", "TRACKS", "CANCIONES"));
-        DrawText(300, 366, 8, 14, grey, LanguageText("Sua colecao", "Your collection", "Tu coleccion"));
+        DrawTextBold(300, 342, 10, 18, white, LanguageText("MÚSICAS", "TRACKS", "CANCIONES"));
+        DrawText(300, 366, 8, 14, grey, LanguageText("Sua coleção", "Your collection", "Tu colección"));
         DrawText(300, 394, 7, 12, purple, LanguageText("BIBLIOTECA", "LIBRARY", "BIBLIOTECA"));
         if (focusArea == FOCUS_CONTENT && contentRow == 1 && contentIndex == 0)
             DrawFocusBorder(191, 313, 208, 115, 0xD8C4FFFF);
@@ -864,7 +930,7 @@ static void DrawScreen(int selected, int page, int focusArea, int contentRow, in
         DrawCoverArt(633, 329, 82, 2);
         DrawTextBold(726, 342, 10, 18, white, LanguageText("PLAYLISTS", "PLAYLISTS", "LISTAS"));
         DrawText(726, 366, 8, 14, grey, LanguageText("Seus momentos", "Your moments", "Tus momentos"));
-        DrawText(726, 394, 7, 12, 0xD58BAEFF, LanguageText("COLECOES", "COLLECTIONS", "COLECCIONES"));
+        DrawText(726, 394, 7, 12, 0xD58BAEFF, LanguageText("COLEÇÕES", "COLLECTIONS", "COLECCIONES"));
         if (focusArea == FOCUS_CONTENT && contentRow == 1 && contentIndex == 2)
             DrawFocusBorder(617, 313, 212, 115, 0xD8C4FFFF);
 
@@ -878,19 +944,19 @@ static void DrawScreen(int selected, int page, int focusArea, int contentRow, in
         DrawRect(199, 152, 626, 1, 0x302442FF, 180.0f);
 
         if (page == 1) {
-            DrawTextBold(224, 178, 15, 25, white, LanguageText("ENCONTRE SUA PROXIMA MUSICA", "FIND YOUR NEXT TRACK", "ENCUENTRA TU PROXIMA CANCION"));
-            DrawText(224, 210, 9, 15, grey, LanguageText("BUSQUE POR TITULO, ARTISTA OU ALBUM", "SEARCH BY TITLE, ARTIST OR ALBUM", "BUSCA POR TITULO, ARTISTA O ALBUM"));
+            DrawTextBold(224, 178, 15, 25, white, LanguageText("ENCONTRE SUA PRÓXIMA MÚSICA", "FIND YOUR NEXT TRACK", "ENCUENTRA TU PRÓXIMA CANCIÓN"));
+            DrawText(224, 210, 9, 15, grey, LanguageText("BUSQUE POR TÍTULO, ARTISTA OU ÁLBUM", "SEARCH BY TITLE, ARTIST OR ALBUM", "BUSCA POR TÍTULO, ARTISTA O ÁLBUM"));
             DrawRect(224, 245, 548, 49, 0x242033FF, 180.0f);
             DrawRect(224, 245, 3, 49, purple, 100.0f);
-            DrawText(244, 260, 10, 18, grey, LanguageText("DIGITE O NOME DE UMA MUSICA OU ARTISTA", "ENTER A TRACK OR ARTIST NAME", "ESCRIBE UNA CANCION O ARTISTA"));
+            DrawText(244, 260, 10, 18, grey, LanguageText("DIGITE O NOME DE UMA MÚSICA OU ARTISTA", "ENTER A TRACK OR ARTIST NAME", "ESCRIBE UNA CANCIÓN O ARTISTA"));
             if (focusArea == FOCUS_CONTENT)
                 DrawFocusBorder(220, 241, 556, 57, 0xD8C4FFFF);
-            DrawText(224, 322, 9, 15, purple, LanguageText("BUSCA DE MUSICA SERA INTEGRADA NAS PROXIMAS ETAPAS.", "MUSIC SEARCH WILL BE ADDED IN A FUTURE UPDATE.", "LA BUSQUEDA MUSICAL LLEGARA EN UNA PROXIMA VERSION."));
+            DrawText(224, 322, 9, 15, purple, LanguageText("BUSCA DE MÚSICA SERÁ INTEGRADA NAS PRÓXIMAS ETAPAS.", "MUSIC SEARCH WILL BE ADDED IN A FUTURE UPDATE.", "LA BÚSQUEDA MUSICAL LLEGARÁ EN UNA PRÓXIMA VERSIÓN."));
 
         } else if (page == 2) {
             DrawTextBold(224, 180, 16, 27, white, LanguageText("SEUS ARTISTAS FAVORITOS", "YOUR FAVORITE ARTISTS", "TUS ARTISTAS FAVORITOS"));
             DrawText(224, 220, 10, 17, grey, LanguageText("Quando sua biblioteca estiver conectada, seus artistas", "When your library is connected, your artists", "Cuando conectes tu biblioteca, tus artistas"));
-            DrawText(224, 243, 10, 17, grey, LanguageText("aparecerao organizados aqui.", "will appear here.", "apareceran aqui."));
+            DrawText(224, 243, 10, 17, grey, LanguageText("aparecerão organizados aqui.", "will appear here.", "aparecerán aquí."));
             DrawCoverArt(224, 293, 72, 1);
             DrawCoverArt(309, 293, 72, 2);
             DrawCoverArt(394, 293, 72, 3);
@@ -901,8 +967,8 @@ static void DrawScreen(int selected, int page, int focusArea, int contentRow, in
             }
 
         } else if (page == 3) {
-            DrawTextBold(224, 180, 16, 27, white, LanguageText("SUA COLECAO DE ALBUNS", "YOUR ALBUM COLLECTION", "TU COLECCION DE ALBUMES"));
-            DrawText(224, 220, 10, 17, grey, LanguageText("Capas, lancamentos e albuns salvos em um so lugar.", "Covers, releases and saved albums in one place.", "Portadas, lanzamientos y albumes guardados en un solo lugar."));
+            DrawTextBold(224, 180, 16, 27, white, LanguageText("SUA COLEÇÃO DE ÁLBUNS", "YOUR ALBUM COLLECTION", "TU COLECCIÓN DE ÁLBUMES"));
+            DrawText(224, 220, 10, 17, grey, LanguageText("Capas, lançamentos e álbuns salvos em um só lugar.", "Covers, releases and saved albums in one place.", "Portadas, lanzamientos y álbumes guardados en un solo lugar."));
             DrawCoverArt(224, 270, 82, 0);
             DrawCoverArt(321, 270, 82, 1);
             DrawCoverArt(418, 270, 82, 2);
@@ -915,7 +981,7 @@ static void DrawScreen(int selected, int page, int focusArea, int contentRow, in
 
         } else if (page == 4) {
             DrawTextBold(224, 180, 16, 27, white, LanguageText("PLAYLISTS PARA CADA MOMENTO", "PLAYLISTS FOR EVERY MOMENT", "LISTAS PARA CADA MOMENTO"));
-            DrawText(224, 220, 10, 17, grey, LanguageText("Organize suas musicas do seu jeito.", "Organize your music your way.", "Organiza tu musica a tu manera."));
+            DrawText(224, 220, 10, 17, grey, LanguageText("Organize suas músicas do seu jeito.", "Organize your music your way.", "Organiza tu música a tu manera."));
             DrawCoverArt(224, 270, 82, 2);
             DrawCoverArt(321, 270, 82, 4);
             DrawCoverArt(418, 270, 82, 0);
@@ -927,10 +993,10 @@ static void DrawScreen(int selected, int page, int focusArea, int contentRow, in
             }
 
         } else if (page == 5) {
-            DrawTextBold(224, 180, 16, 27, white, LanguageText("CONFIGURACOES", "SETTINGS", "AJUSTES"));
-            DrawText(224, 218, 10, 17, grey, LanguageText("IDIOMA DO APLICATIVO", "APP LANGUAGE", "IDIOMA DE LA APLICACION"));
+            DrawTextBold(224, 180, 16, 27, white, LanguageText("CONFIGURAÇÕES", "SETTINGS", "AJUSTES"));
+            DrawText(224, 218, 10, 17, grey, LanguageText("IDIOMA DO APLICATIVO", "APP LANGUAGE", "IDIOMA DE LA APLICACIÓN"));
 
-            const char *languageNames[3] = { "PORTUGUES", "ENGLISH", "ESPANOL" };
+            const char *languageNames[3] = { "PORTUGUÊS", "ENGLISH", "ESPAÑOL" };
             const float languageX[3] = { 224.0f, 420.0f, 616.0f };
             for (int i = 0; i < 3; ++i) {
                 u32 boxColor = (g_language == i) ? 0x49336AFF : 0x242033FF;
@@ -942,25 +1008,30 @@ static void DrawScreen(int selected, int page, int focusArea, int contentRow, in
             }
 
             DrawText(224, 342, 9, 15, purple, LanguageText("ESQUERDA / DIREITA: ALTERAR IDIOMA", "LEFT / RIGHT: CHANGE LANGUAGE", "IZQUIERDA / DERECHA: CAMBIAR IDIOMA"));
-            DrawText(224, 371, 9, 15, grey, LanguageText("A ESCOLHA FICA SALVA NO CONSOLE.", "YOUR CHOICE IS SAVED ON THE CONSOLE.", "TU ELECCION SE GUARDA EN LA CONSOLA."));
-            DrawText(224, 402, 8, 13, grey, LanguageText("TRIANGULO: VOLTAR", "TRIANGLE: BACK", "TRIANGULO: VOLVER"));
+            DrawText(224, 371, 9, 15, grey, LanguageText("A ESCOLHA FICA SALVA NO CONSOLE.", "YOUR CHOICE IS SAVED ON THE CONSOLE.", "TU ELECCIÓN SE GUARDA EN LA CONSOLA."));
+            DrawText(224, 402, 8, 13, grey, LanguageText("TRIÂNGULO: VOLTAR", "TRIANGLE: BACK", "TRIÁNGULO: VOLVER"));
             if (focusArea == FOCUS_CONTENT)
                 DrawFocusBorder(190, 147, 640, 282, 0xD8C4FFFF);
 
         } else if (page == 6) {
-            DrawTextBold(224, 180, 18, 29, white, LanguageText("CREDITOS", "CREDITS", "CREDITOS"));
-            DrawText(224, 238, 11, 19, grey, LanguageText("DESENVOLVIDO POR:", "DEVELOPED BY:", "DESARROLLADO POR:"));
-            DrawTextBold(224, 276, 19, 31, white, "MARCELO GUILHERME");
-            DrawText(224, 334, 9, 15, purple, LanguageText("OBRIGADO POR CONHECER O JEZZ.", "THANK YOU FOR USING JEZZ.", "GRACIAS POR CONOCER JEZZ."));
+            DrawText(224, 211, 11, 19, purple, LanguageText("DESENVOLVIDO POR:", "DEVELOPED BY:", "DESARROLLADO POR:"));
+            DrawTextBold(224, 250, 19, 31, white, "MARCELO GUILHERME");
+            DrawText(224, 334, 9, 15, grey, LanguageText("OBRIGADO POR CONHECER O JEZZ.", "THANK YOU FOR USING JEZZ.", "GRACIAS POR CONOCER JEZZ."));
             if (focusArea == FOCUS_CONTENT)
                 DrawFocusBorder(190, 147, 640, 282, 0xD8C4FFFF);
 
         } else if (page == 7) {
-            DrawTextBold(224, 180, 18, 29, white, LanguageText("APOIE O PROJETO", "SUPPORT THE PROJECT", "APOYA EL PROYECTO"));
-            DrawText(224, 225, 10, 17, grey, LanguageText("SUA CONTRIBUICAO E VOLUNTARIA E NAO E OBRIGATORIA.", "YOUR CONTRIBUTION IS VOLUNTARY AND NOT REQUIRED.", "TU CONTRIBUCION ES VOLUNTARIA Y NO ES OBLIGATORIA."));
-            DrawText(224, 255, 10, 17, grey, LanguageText("O JEZZ SERA SEMPRE GRATUITO PARA TODOS.", "JEZZ WILL ALWAYS BE FREE FOR EVERYONE.", "JEZZ SIEMPRE SERA GRATIS PARA TODOS."));
-            DrawTextBold(224, 310, 11, 19, purple, "PIX:");
-            DrawTextBold(224, 344, 10, 18, white, "Marceloguilher08062007me@gmail.com");
+            DrawText(224, 180, 9, 15, purple, LanguageText("CONTRIBUIÇÃO VOLUNTÁRIA", "VOLUNTARY SUPPORT", "APOYO VOLUNTARIO"));
+            DrawText(224, 211, 10, 17, grey, LanguageText("A contribuição é opcional e não é obrigatória.", "Contributions are optional and never required.", "La contribución es opcional y no es obligatoria."));
+            DrawText(224, 240, 10, 17, grey, LanguageText("O JEZZ será sempre gratuito para todos.", "JEZZ will always be free for everyone.", "JEZZ siempre será gratis para todos."));
+
+            DrawRect(224, 278, 560, 1, 0x302442FF, 180.0f);
+            DrawTextBold(224, 296, 11, 19, purple, "PIX:");
+
+            DrawRect(224, 323, 460, 42, 0x242033FF, 180.0f);
+            DrawRect(224, 323, 3, 42, 0x9560FFFF, 100.0f);
+            DrawTextBold(240, 335, 10, 18, white, "Marceloguilher08062007me@gmail.com");
+
             DrawText(224, 391, 9, 15, grey, LanguageText("OBRIGADO POR APOIAR O PROJETO!", "THANK YOU FOR SUPPORTING THE PROJECT!", "GRACIAS POR APOYAR EL PROYECTO!"));
             if (focusArea == FOCUS_CONTENT)
                 DrawFocusBorder(190, 147, 640, 282, 0xD8C4FFFF);
