@@ -1,4 +1,3 @@
-
 name: JEZZ PS3 Build
 
 on:
@@ -26,47 +25,51 @@ jobs:
           curl -fL \
             https://cdn.hddj.top/ps3dev/ps3toolchain/releases/download/2026-06-09/ps3dev-92534e60-ubuntu-latest.tar.gz \
             -o ps3dev.tar.gz
-
           tar -xzf ps3dev.tar.gz -C "$GITHUB_WORKSPACE"
 
       - name: Configure PS3 environment
         shell: bash
         run: |
-          export PS3DEV="$GITHUB_WORKSPACE/ps3dev"
-          export PSL1GHT="$PS3DEV"
+          RULES="$(find "$GITHUB_WORKSPACE" -name ppu_rules -type f -print -quit)"
+          if [ -z "$RULES" ]; then
+            echo "ERRO: ppu_rules não encontrado"
+            exit 1
+          fi
 
-          test -f "$PSL1GHT/ppu_rules"
+          PS3DEV="$(dirname "$RULES")"
+
           test -x "$PS3DEV/ppu/bin/ppu-gcc"
 
           echo "PS3DEV=$PS3DEV" >> "$GITHUB_ENV"
-          echo "PSL1GHT=$PSL1GHT" >> "$GITHUB_ENV"
+          echo "PSL1GHT=$PS3DEV" >> "$GITHUB_ENV"
           echo "PORTLIBS=$PS3DEV/portlibs/ppu" >> "$GITHUB_ENV"
-
           echo "$PS3DEV/bin" >> "$GITHUB_PATH"
           echo "$PS3DEV/ppu/bin" >> "$GITHUB_PATH"
 
-      - name: Verify compiler
+      - name: Verify compiler and project files
         shell: bash
         run: |
-          ldd --version
+          cd "$GITHUB_WORKSPACE"
+          pwd
+          ls -la
           ppu-gcc --version
-
-      - name: Verify project files
-        run: |
-          test -f Makefile
-          test -f src/main.c
+          test -f "$GITHUB_WORKSPACE/Makefile"
+          test -f "$GITHUB_WORKSPACE/src/main.cpp"
 
       - name: Build JEZZ ELF
         shell: bash
         run: |
-          make clean
-          make
+          cd "$GITHUB_WORKSPACE"
+          make clean TARGET=JEZZ
+          make TARGET=JEZZ
           test -s JEZZ.elf
 
       - name: Build JEZZ PKG
         shell: bash
         run: |
-          make JEZZ.pkg \
+          cd "$GITHUB_WORKSPACE"
+          make pkg \
+            TARGET=JEZZ \
             TITLE="JEZZ" \
             APPID="JEZZ00001" \
             CONTENTID="UP0001-JEZZ00001_00-0000000000000000"
