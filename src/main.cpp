@@ -14,59 +14,16 @@
 
 #define JEZZ_LOGO_PATH "/dev_hdd0/game/JEZZ00001/USRDIR/assets/JEZZ_LOGO.PNG"
 
-enum JezzLanguage {
-    LANG_PT = 0,
-    LANG_EN = 1,
-    LANG_ES = 2
+static const int MENU_COUNT = 6;
+
+static const char *menuItems[MENU_COUNT] = {
+    "INICIO", "BUSCAR", "ARTISTAS",
+    "ALBUNS", "PLAYLISTS", "AJUSTES"
 };
 
-static const int MENU_COUNT = 8;
-static int g_language = LANG_PT;
-
-static const char *LanguageText(const char *pt, const char *en, const char *es) {
-    if (g_language == LANG_EN) return en;
-    if (g_language == LANG_ES) return es;
-    return pt;
-}
-
-static const char *MenuItem(int index) {
-    switch (index) {
-        case 0: return LanguageText("INICIO", "HOME", "INICIO");
-        case 1: return LanguageText("BUSCAR", "SEARCH", "BUSCAR");
-        case 2: return LanguageText("ARTISTAS", "ARTISTS", "ARTISTAS");
-        case 3: return LanguageText("ÁLBUNS", "ALBUMS", "ÁLBUMES");
-        case 4: return LanguageText("PLAYLISTS", "PLAYLISTS", "LISTAS");
-        case 5: return LanguageText("CONFIGURAÇÕES", "SETTINGS", "AJUSTES");
-        case 6: return LanguageText("CRÉDITOS", "CREDITS", "CRÉDITOS");
-        default: return LanguageText("APOIE O PROJETO", "SUPPORT PROJECT", "APOYAR PROYECTO");
-    }
-}
-
-#define JEZZ_SETTINGS_PATH "/dev_hdd0/game/JEZZ00001/USRDIR/jezz_settings.cfg"
-
-static void LoadSettings(void) {
-    FILE *file = fopen(JEZZ_SETTINGS_PATH, "r");
-    if (!file) return;
-
-    int savedLanguage = LANG_PT;
-    if (fscanf(file, "%d", &savedLanguage) == 1 &&
-        savedLanguage >= LANG_PT && savedLanguage <= LANG_ES) {
-        g_language = savedLanguage;
-    }
-    fclose(file);
-}
-
-static void SaveSettings(void) {
-    FILE *file = fopen(JEZZ_SETTINGS_PATH, "w");
-    if (!file) return;
-    fprintf(file, "%d\n", g_language);
-    fclose(file);
-}
-
-enum JezzFocus {
-    FOCUS_SIDEBAR = 0,
-    FOCUS_CONTENT = 1,
-    FOCUS_PLAYER = 2
+static const char *pageTitles[MENU_COUNT] = {
+    "INICIO", "BUSCAR", "ARTISTAS",
+    "ALBUNS", "PLAYLISTS", "AJUSTES"
 };
 
 static FT_Library g_ftLibrary;
@@ -100,7 +57,7 @@ static void TTFToBitmap(
 
     FT_Set_Pixel_Sizes(
         g_ftFace,
-        (FT_UInt)*w,
+        0,
         (FT_UInt)*h
     );
 
@@ -143,16 +100,11 @@ static void TTFToBitmap(
         }
     }
 
-    int advance = (int)((slot->advance.x + 31) >> 6) +
-                  ((slot->bitmap_left < 0) ? -slot->bitmap_left : 0);
+    *w = (short)(
+        ((slot->advance.x + 31) >> 6) +
+        ((slot->bitmap_left < 0) ? -slot->bitmap_left : 0)
+    );
 
-    // Tracking leve para evitar que as letras fiquem visualmente grudadas.
-    // O espaco recebe um avanco maior para separar claramente as palavras.
-    advance += 2;
-    if (chr == (u8)' ')
-        advance += 10;
-
-    *w = (short)advance;
     *h = (short)slot->bitmap.rows;
 }
 
@@ -179,7 +131,7 @@ static bool InitFont(void) {
     }
 
     u8 *fontEnd = AddFontFromTTF(
-        (u8 *)fontTexture, 32, 255, 64, 64, TTFToBitmap
+        (u8 *)fontTexture, 32, 126, 64, 64, TTFToBitmap
     );
 
     FT_Done_Face(g_ftFace);
@@ -197,7 +149,7 @@ static bool InitFont(void) {
 
     if (!FT_New_Face(g_ftLibrary, boldPath, 0, &g_ftFace)) {
         fontEnd = AddFontFromTTF(
-            fontEnd, 32, 255, 64, 64, TTFToBitmap
+            fontEnd, 32, 126, 64, 64, TTFToBitmap
         );
 
         FT_Done_Face(g_ftFace);
@@ -558,7 +510,7 @@ static void DrawBootSplash(float progress) {
     );
 
     DrawPixelText(
-        LanguageText("MUSICA EM TODO LUGAR", "MUSIC EVERYWHERE", "MUSICA EN TODAS PARTES"),
+        "MUSICA EM TODO LUGAR",
         330,
         365,
         2.0f,
@@ -566,7 +518,7 @@ static void DrawBootSplash(float progress) {
     );
 
     DrawPixelText(
-        LanguageText("INICIANDO", "STARTING", "INICIANDO"),
+        "INICIANDO",
         365,
         405,
         2.0f,
@@ -592,61 +544,6 @@ static void PlayBootAnimation(void) {
 
 
 /* =========================================================
-   CONVERSAO UTF-8 PARA LATIN-1
-   libfont trabalha com caracteres de 8 bits; esta conversao
-   permite desenhar acentos portugueses e espanhóis.
-   ========================================================= */
-
-static void UTF8ToLatin1(const char *src, char *dst, size_t dstSize) {
-    if (!dst || dstSize == 0)
-        return;
-
-    size_t out = 0;
-    const unsigned char *p = (const unsigned char *)src;
-
-    if (!p) {
-        dst[0] = '\0';
-        return;
-    }
-
-    while (*p && out + 1 < dstSize) {
-        unsigned int codepoint = 0;
-
-        if (*p < 0x80) {
-            codepoint = *p++;
-        } else if ((*p & 0xE0) == 0xC0 && p[1]) {
-            codepoint = ((unsigned int)(p[0] & 0x1F) << 6) |
-                        (unsigned int)(p[1] & 0x3F);
-            p += 2;
-        } else if ((*p & 0xF0) == 0xE0 && p[1] && p[2]) {
-            codepoint = ((unsigned int)(p[0] & 0x0F) << 12) |
-                        ((unsigned int)(p[1] & 0x3F) << 6) |
-                        (unsigned int)(p[2] & 0x3F);
-            p += 3;
-        } else if ((*p & 0xF8) == 0xF0 && p[1] && p[2] && p[3]) {
-            codepoint = ((unsigned int)(p[0] & 0x07) << 18) |
-                        ((unsigned int)(p[1] & 0x3F) << 12) |
-                        ((unsigned int)(p[2] & 0x3F) << 6) |
-                        (unsigned int)(p[3] & 0x3F);
-            p += 4;
-        } else {
-            ++p;
-            codepoint = '?';
-        }
-
-        if (codepoint == 0xA0)
-            codepoint = ' ';
-
-        dst[out++] = (codepoint <= 0xFF)
-            ? (char)codepoint
-            : '?';
-    }
-
-    dst[out] = '\0';
-}
-
-
-/* =========================================================
    TEXTO PRINCIPAL
    ========================================================= */
 
@@ -662,18 +559,15 @@ static void DrawText(
     if (!g_fontReady || !value)
         return;
 
-    char latinText[512];
-    UTF8ToLatin1(value, latinText, sizeof(latinText));
-
     SetCurrentFont(0);
 
-    SetFontSize(width + 1, height);
+    SetFontSize(width, height);
 
     SetFontColor(color, 0x00000000);
 
     SetFontZ(0.0f);
 
-    DrawString(x, y, latinText);
+    DrawString(x, y, (char *)value);
 }
 
 static void DrawTextBold(
@@ -687,14 +581,11 @@ static void DrawTextBold(
     if (!g_fontReady || !value)
         return;
 
-    char latinText[512];
-    UTF8ToLatin1(value, latinText, sizeof(latinText));
-
     SetCurrentFont(g_boldFontReady ? 1 : 0);
-    SetFontSize(width + 1, height);
+    SetFontSize(width, height);
     SetFontColor(color, 0x00000000);
     SetFontZ(0.0f);
-    DrawString(x, y, latinText);
+    DrawString(x, y, (char *)value);
 }
 
 
@@ -703,361 +594,167 @@ static void DrawTextBold(
    ========================================================= */
 
 
-
-/* =========================================================
-   CAPAS ILUSTRADAS - IDENTIDADE VISUAL JEZZ
-   ========================================================= */
-
-static void DrawCoverArt(float x, float y, float size, int variant) {
-    u32 base = 0x25183DFF;
-    u32 mid = 0x65449AFF;
-    u32 light = 0xC49BFFFF;
-    u32 accent = 0x9560FFFF;
-
-    if (variant == 1) {
-        base = 0x102A35FF;
-        mid = 0x286477FF;
-        light = 0x8BD2DFFF;
-        accent = 0x48A6BFFF;
-    } else if (variant == 2) {
-        base = 0x351C32FF;
-        mid = 0x87466EFF;
-        light = 0xE5A2C2FF;
-        accent = 0xC66A9AFF;
-    } else if (variant == 3) {
-        base = 0x302719FF;
-        mid = 0x806039FF;
-        light = 0xE9C98AFF;
-        accent = 0xC18B45FF;
-    } else if (variant == 4) {
-        base = 0x19263AFF;
-        mid = 0x3D5D91FF;
-        light = 0xA9C8FFFF;
-        accent = 0x658BD0FF;
-    }
-
-    DrawRect(x, y, size, size, base, 280.0f);
-    DrawRect(x + size * 0.08f, y + size * 0.08f,
-             size * 0.84f, size * 0.84f, mid, 220.0f);
-
-    // Blocos geometricos criam uma capa diferente sem depender
-    // de imagens externas ou recursos ainda nao existentes.
-    DrawRect(x + size * 0.15f, y + size * 0.15f,
-             size * 0.70f, size * 0.12f, accent, 180.0f);
-    DrawRect(x + size * 0.15f, y + size * 0.31f,
-             size * 0.22f, size * 0.53f, base, 170.0f);
-    DrawRect(x + size * 0.43f, y + size * 0.31f,
-             size * 0.42f, size * 0.10f, light, 160.0f);
-    DrawRect(x + size * 0.43f, y + size * 0.48f,
-             size * 0.42f, size * 0.10f, accent, 160.0f);
-    DrawRect(x + size * 0.43f, y + size * 0.65f,
-             size * 0.28f, size * 0.10f, light, 160.0f);
-
-    // Pequena assinatura visual no canto inferior.
-    DrawRect(x + size * 0.15f, y + size * 0.83f,
-             size * 0.70f, size * 0.035f, light, 140.0f);
-}
-
-
-static void DrawFocusBorder(float x, float y, float width, float height, u32 color) {
-    const float t = 2.0f;
-    DrawRect(x, y, width, t, color, 70.0f);
-    DrawRect(x, y + height - t, width, t, color, 70.0f);
-    DrawRect(x, y, t, height, color, 70.0f);
-    DrawRect(x + width - t, y, t, height, color, 70.0f);
-}
-
-
-static void DrawPlayerBar(
-    u32 purple,
-    u32 white,
-    u32 grey,
-    int focusArea,
-    int playerIndex,
-    int volume
-) {
-    DrawRect(0, 447, 848, 65, 0x11101AFF, 50000.0f);
-    DrawRect(0, 447, 848, 2, 0x49336AFF, 100.0f);
-    DrawRect(0, 448, 848, 1, 0x211A30FF, 90.0f);
-
-    DrawCoverArt(18, 458, 43, 0);
-    DrawTextBold(73, 458, 10, 18, white, LanguageText("NADA TOCANDO", "NOTHING PLAYING", "NADA SONANDO"));
-    DrawText(73, 482, 8, 14, grey, LanguageText("ESCOLHA UMA FAIXA", "CHOOSE A TRACK", "ELIGE UNA CANCIÓN"));
-
-    // Controles do player: esquerda, play/pause, proxima e volume.
-    DrawText(365, 462, 10, 17, grey, "<<");
-    DrawRect(425, 457, 34, 29, 0x302044FF, 120.0f);
-    DrawTextBold(432, 463, 9, 16, white, ">");
-    DrawText(480, 462, 10, 17, grey, ">>");
-
-    if (focusArea == FOCUS_PLAYER) {
-        if (playerIndex == 0)
-            DrawFocusBorder(350, 454, 42, 34, 0xD8C4FFFF);
-        else if (playerIndex == 1)
-            DrawFocusBorder(421, 453, 42, 37, 0xD8C4FFFF);
-        else if (playerIndex == 2)
-            DrawFocusBorder(467, 454, 42, 34, 0xD8C4FFFF);
-        else
-            DrawFocusBorder(711, 453, 107, 43, 0xD8C4FFFF);
-    }
-
-    DrawRect(355, 495, 250, 3, 0x393344FF, 150.0f);
-    DrawRect(355, 495, 3, 3, purple, 100.0f);
-
-    DrawText(535, 459, 7, 12, grey, LanguageText("L1/R1: SEÇÕES", "L1/R1: SECTIONS", "L1/R1: SECCIONES"));
-    DrawText(535, 480, 7, 12, grey, LanguageText("SELECT: PLAYER", "SELECT: PLAYER", "SELECT: REPRODUCTOR"));
-    DrawText(610, 497, 7, 11, grey, LanguageText("O: SEGURE 5s", "HOLD O: 5s", "MANTENER O: 5s"));
-
-    DrawText(720, 459, 8, 14, grey, LanguageText("VOLUME", "VOLUME", "VOLUMEN"));
-    DrawRect(720, 482, 92, 4, 0x393344FF, 150.0f);
-    int knobX = 720 + (volume * 92) / 100;
-    DrawRect(720, 482, (float)(volume * 92) / 100.0f, 4, purple, 100.0f);
-    DrawRect((float)knobX - 4.0f, 478, 8, 12, white, 90.0f);
-}
-
-static void DrawSidebar(int selected, int focusArea, u32 purple, u32 white, u32 grey) {
-    DrawRect(0, 62, 176, 385, 0x0D0B15FF, 50000.0f);
-    DrawRect(175, 62, 1, 385, 0x292337FF, 40000.0f);
-
-    DrawText(22, 76, 9, 15, grey, LanguageText("MENU PRINCIPAL", "MAIN MENU", "MENU PRINCIPAL"));
-
-    for (int i = 0; i < MENU_COUNT; ++i) {
-        float y = 96.0f + (float)i * 40.0f;
-
-        if (i == selected) {
-            DrawRect(9, y, 158, 34, 0x302044FF, 180.0f);
-            DrawRect(9, y, 3, 34, purple, 100.0f);
-            DrawRect(164, y + 7, 2, 20, 0xB18AEAFF, 90.0f);
-            if (focusArea == FOCUS_SIDEBAR)
-                DrawFocusBorder(7, y - 1, 162, 36, 0xD8C4FFFF);
-        }
-
-        DrawTextBold(
-            22,
-            y + 8,
-            9,
-            17,
-            (i == selected) ? white : grey,
-            MenuItem(i)
-        );
-    }
-
-    DrawRect(18, 419, 140, 1, 0x292337FF, 300.0f);
-    DrawText(22, 423, 8, 14, purple, "JEZZ v0.6");
-}
-
-
-static void DrawScreen(int selected, int page, int focusArea, int contentRow, int contentIndex, int playerIndex, int volume) {
+static void DrawScreen(int selected, int page) {
     const u32 purple = 0x9560FFFF;
     const u32 white = 0xFFFFFFFF;
     const u32 grey = 0xAAA5B8FF;
     const u32 background = 0x08070DFF;
 
-    // Fundo, topo e identidade visual.
+    // Fundo e estrutura principal
     DrawRect(0, 0, 848, 512, background, 65535.0f);
-    DrawRect(0, 0, 848, 62, 0x11101AFF, 50000.0f);
-    DrawRect(0, 61, 848, 1, 0x292337FF, 40000.0f);
+    DrawRect(0, 0, 848, 64, 0x12101BFF, 50000.0f);
+    DrawRect(0, 64, 184, 383, 0x0D0B15FF, 50000.0f);
+    DrawRect(183, 64, 1, 383, 0x292337FF, 40000.0f);
 
-    // Marca JEZZ no topo.
-    DrawRect(23, 20, 4, 24, purple, 100.0f);
-    DrawRect(32, 13, 4, 31, purple, 100.0f);
-    DrawRect(41, 18, 4, 26, purple, 100.0f);
-    DrawRect(50, 25, 4, 19, purple, 100.0f);
-    DrawTextBold(67, 11, 26, 40, white, "JEZZ");
-    DrawText(174, 25, 8, 15, grey, LanguageText("MÚSICA", "MUSIC", "MÚSICA"));
+    // Identidade JEZZ
+    DrawRect(24, 20, 4, 25, purple, 100.0f);
+    DrawRect(33, 13, 4, 32, purple, 100.0f);
+    DrawRect(42, 18, 4, 27, purple, 100.0f);
+    DrawRect(51, 25, 4, 20, purple, 100.0f);
 
-    DrawRect(696, 17, 130, 29, 0x1B1726FF, 200.0f);
-    DrawRect(708, 28, 5, 5, 0x7DDBA4FF, 100.0f);
-    DrawText(721, 25, 8, 14, grey, LanguageText("EDIÇÃO PS3", "PS3 EDITION", "EDICIÓN PS3"));
+    DrawTextBold(68, 12, 26, 40, white, "JEZZ");
+    DrawText(165, 25, 9, 16, grey, "MUSIC PLAYER");
+    DrawText(730, 25, 9, 16, grey, "PS3 EDITION");
 
-    DrawSidebar(selected, focusArea, purple, white, grey);
+    // Menu lateral
+    DrawText(24, 83, 9, 16, grey, "MENU PRINCIPAL");
 
-    // Conteudo principal.
+    for (int i = 0; i < MENU_COUNT; ++i) {
+        float y = 111.0f + (float)i * 47.0f;
+
+        if (i == selected) {
+            DrawRect(13, y, 157, 38, 0x302044FF, 100.0f);
+            DrawRect(13, y, 4, 38, purple, 60.0f);
+        }
+
+        DrawText(
+            31,
+            y + 8,
+            12,
+            21,
+            (i == selected) ? white : grey,
+            menuItems[i]
+        );
+    }
+
+    DrawText(24, 399, 9, 16, purple, "JEZZ v0.3");
+    DrawText(24, 421, 8, 14, grey, "MUSIC EXPERIENCE");
+
+    // Conteudo principal
     if (page == 0) {
-        DrawText(196, 76, 9, 16, purple, LanguageText("BEM-VINDO DE VOLTA", "WELCOME BACK", "BIENVENIDO DE NUEVO"));
-        DrawTextBold(196, 94, 19, 30, white, LanguageText("O QUE VAMOS OUVIR HOJE?", "WHAT SHALL WE LISTEN TO?", "QUE VAMOS A ESCUCHAR HOY?"));
+        DrawText(210, 80, 10, 18, grey, "BEM-VINDO AO JEZZ");
+        DrawText(210, 103, 23, 38, white, "O QUE VAMOS OUVIR?");
 
-        // Banner principal de destaque.
-        DrawRect(194, 135, 632, 137, 0x171222FF, 320.0f);
-        DrawRect(194, 135, 4, 137, purple, 100.0f);
-        DrawRect(198, 136, 624, 1, 0x49336AFF, 180.0f);
+        // Painel de destaque
+        DrawRect(210, 153, 610, 132, 0x1B142AFF, 300.0f);
+        DrawRect(210, 153, 5, 132, purple, 100.0f);
 
-        DrawText(218, 151, 9, 16, 0xC49BFFFF, LanguageText("DESTAQUE JEZZ", "JEZZ FEATURE", "DESTACADO JEZZ"));
-        DrawTextBold(218, 177, 18, 29, white, LanguageText("DESCUBRA SEU PRÓXIMO SOM", "DISCOVER YOUR NEXT SOUND", "DESCUBRE TU PRÓXIMO SONIDO"));
-        DrawText(218, 211, 8, 14, grey, LanguageText("Sua próxima descoberta começa aqui.", "Your next discovery starts here.", "Tu próximo descubrimiento empieza aquí."));
-        DrawRect(218, 235, 139, 25, 0x65449AFF, 120.0f);
-        DrawTextBold(231, 241, 8, 14, white, LanguageText("EXPLORAR AGORA", "EXPLORE NOW", "EXPLORAR AHORA"));
+        DrawText(239, 169, 10, 18, purple, "SUA EXPERIENCIA MUSICAL");
+        DrawText(239, 199, 19, 31, white, "SUA MUSICA. SEU MOMENTO.");
+        DrawText(239, 245, 9, 16, grey, "Explore sua biblioteca e descubra novos sons.");
 
-        // Arte abstrata principal.
-        DrawRect(675, 145, 126, 116, 0x261A3BFF, 250.0f);
-        DrawCoverArt(688, 151, 104, 0);
-        DrawRect(668, 153, 2, 94, 0xC49BFFFF, 110.0f);
-        if (focusArea == FOCUS_CONTENT && contentRow == 0)
-            DrawFocusBorder(191, 132, 638, 143, 0xD8C4FFFF);
+        // Equalizador decorativo
+        const float bars[9] = {
+            22, 38, 53, 31, 65, 43, 56, 28, 46
+        };
 
-        // Pequenas barras de equalizador como detalhe.
-        DrawRect(648, 226, 4, 22, 0x9560FFFF, 100.0f);
-        DrawRect(655, 214, 4, 34, 0xB18AEAFF, 100.0f);
-        DrawRect(662, 220, 4, 28, 0x65449AFF, 100.0f);
+        for (int i = 0; i < 9; ++i) {
+            float x = 690.0f + (float)i * 13.0f;
+            float h = bars[i];
+            DrawRect(
+                x,
+                258.0f - h,
+                7,
+                h,
+                (i % 2 == 0) ? purple : 0x65449AFF,
+                120.0f
+            );
+        }
 
-        // Secao de atalhos.
-        DrawTextBold(196, 285, 13, 21, white, LanguageText("EXPLORE SUA MÚSICA", "EXPLORE YOUR MUSIC", "EXPLORA TU MÚSICA"));
-        DrawText(754, 290, 7, 13, purple, LanguageText("VER MAIS", "SEE MORE", "VER MÁS"));
+        DrawText(210, 302, 13, 23, white, "SUA BIBLIOTECA");
 
-        // Card 1.
-        DrawRect(194, 316, 202, 109, 0x15121FFF, 320.0f);
-        DrawRect(194, 316, 202, 1, 0x302442FF, 180.0f);
-        DrawCoverArt(207, 329, 82, 0);
-        DrawTextBold(300, 342, 10, 18, white, LanguageText("MÚSICAS", "TRACKS", "CANCIONES"));
-        DrawText(300, 366, 8, 14, grey, LanguageText("Sua coleção", "Your collection", "Tu colección"));
-        DrawText(300, 394, 7, 12, purple, LanguageText("BIBLIOTECA", "LIBRARY", "BIBLIOTECA"));
-        if (focusArea == FOCUS_CONTENT && contentRow == 1 && contentIndex == 0)
-            DrawFocusBorder(191, 313, 208, 115, 0xD8C4FFFF);
+        // Card de musicas
+        DrawRect(210, 337, 194, 83, 0x171421FF, 300.0f);
+        DrawRect(224, 348, 60, 60, 0x39245DFF, 180.0f);
+        DrawRect(224, 348, 60, 8, 0xA477DFFF, 120.0f);
+        DrawRect(234, 366, 9, 31, 0xC8A5FFFF, 100.0f);
+        DrawRect(248, 357, 9, 40, 0x9560FFFF, 100.0f);
+        DrawRect(262, 373, 9, 24, 0xC8A5FFFF, 100.0f);
+        DrawText(295, 356, 10, 18, white, "MUSICAS");
+        DrawText(295, 382, 8, 14, grey, "Sua biblioteca");
 
-        // Card 2.
-        DrawRect(407, 316, 202, 109, 0x15121FFF, 320.0f);
-        DrawRect(407, 316, 202, 1, 0x263D49FF, 180.0f);
-        DrawCoverArt(420, 329, 82, 1);
-        DrawTextBold(513, 342, 10, 18, white, LanguageText("ARTISTAS", "ARTISTS", "ARTISTAS"));
-        DrawText(513, 366, 8, 14, grey, LanguageText("Seus favoritos", "Your favorites", "Tus favoritos"));
-        DrawText(513, 394, 7, 12, 0x70C6D8FF, LanguageText("DESCUBRA", "DISCOVER", "DESCUBRIR"));
-        if (focusArea == FOCUS_CONTENT && contentRow == 1 && contentIndex == 1)
-            DrawFocusBorder(404, 313, 208, 115, 0xD8C4FFFF);
+        // Card de artistas
+        DrawRect(412, 337, 194, 83, 0x171421FF, 300.0f);
+        DrawRect(426, 348, 60, 60, 0x20394AFF, 180.0f);
+        DrawRect(436, 358, 40, 40, 0x39718AFF, 120.0f);
+        DrawRect(446, 368, 20, 20, 0x8AC5D9FF, 100.0f);
+        DrawText(497, 356, 10, 18, white, "ARTISTAS");
+        DrawText(497, 382, 8, 14, grey, "Explore artistas");
 
-        // Card 3.
-        DrawRect(620, 316, 206, 109, 0x15121FFF, 320.0f);
-        DrawRect(620, 316, 206, 1, 0x493047FF, 180.0f);
-        DrawCoverArt(633, 329, 82, 2);
-        DrawTextBold(726, 342, 10, 18, white, LanguageText("PLAYLISTS", "PLAYLISTS", "LISTAS"));
-        DrawText(726, 366, 8, 14, grey, LanguageText("Seus momentos", "Your moments", "Tus momentos"));
-        DrawText(726, 394, 7, 12, 0xD58BAEFF, LanguageText("COLEÇÕES", "COLLECTIONS", "COLECCIONES"));
-        if (focusArea == FOCUS_CONTENT && contentRow == 1 && contentIndex == 2)
-            DrawFocusBorder(617, 313, 212, 115, 0xD8C4FFFF);
+        // Card de playlists
+        DrawRect(614, 337, 206, 83, 0x171421FF, 300.0f);
+        DrawRect(628, 348, 60, 60, 0x4A283BFF, 180.0f);
+        DrawRect(638, 358, 40, 40, 0xA44F75FF, 120.0f);
+        DrawRect(648, 368, 20, 20, 0xE2A0BDFF, 100.0f);
+        DrawText(699, 356, 10, 18, white, "PLAYLISTS");
+        DrawText(699, 382, 8, 14, grey, "Suas colecoes");
+
+        DrawText(
+            210, 426, 8, 14,
+            0xC7C0D8FF,
+            "DESENVOLVIDO POR: MARCELO GUILHERME"
+        );
 
     } else {
-        // Cabecalho das paginas internas.
-        DrawText(196, 78, 9, 15, purple, LanguageText("SUA BIBLIOTECA", "YOUR LIBRARY", "TU BIBLIOTECA"));
-        DrawTextBold(196, 98, 23, 37, white, MenuItem(page));
+        DrawText(210, 86, 23, 38, white, pageTitles[page]);
 
-        DrawRect(194, 151, 632, 274, 0x15121FFF, 320.0f);
-        DrawRect(194, 151, 4, 274, purple, 100.0f);
-        DrawRect(199, 152, 626, 1, 0x302442FF, 180.0f);
+        DrawRect(210, 145, 610, 276, 0x171421FF, 300.0f);
+        DrawRect(210, 145, 5, 276, purple, 100.0f);
 
         if (page == 1) {
-            DrawTextBold(224, 178, 15, 25, white, LanguageText("ENCONTRE SUA PRÓXIMA MÚSICA", "FIND YOUR NEXT TRACK", "ENCUENTRA TU PRÓXIMA CANCIÓN"));
-            DrawText(224, 210, 9, 15, grey, LanguageText("BUSQUE POR TÍTULO, ARTISTA OU ÁLBUM", "SEARCH BY TITLE, ARTIST OR ALBUM", "BUSCA POR TÍTULO, ARTISTA O ÁLBUM"));
-            DrawRect(224, 245, 548, 49, 0x242033FF, 180.0f);
-            DrawRect(224, 245, 3, 49, purple, 100.0f);
-            DrawText(244, 260, 10, 18, grey, LanguageText("DIGITE O NOME DE UMA MÚSICA OU ARTISTA", "ENTER A TRACK OR ARTIST NAME", "ESCRIBE UNA CANCIÓN O ARTISTA"));
-            if (focusArea == FOCUS_CONTENT)
-                DrawFocusBorder(220, 241, 556, 57, 0xD8C4FFFF);
-            DrawText(224, 322, 9, 15, purple, LanguageText("BUSCA DE MÚSICA SERÁ INTEGRADA NAS PRÓXIMAS ETAPAS.", "MUSIC SEARCH WILL BE ADDED IN A FUTURE UPDATE.", "LA BÚSQUEDA MUSICAL LLEGARÁ EN UNA PRÓXIMA VERSIÓN."));
+            DrawText(241, 177, 15, 26, purple, "BUSCAR MUSICAS");
+            DrawRect(241, 224, 548, 48, 0x242033FF, 180.0f);
+            DrawText(259, 237, 10, 18, grey, "BUSQUE POR MUSICA OU ARTISTA");
+            DrawText(241, 302, 10, 18, white, "A busca sera integrada nas proximas etapas.");
 
         } else if (page == 2) {
-            DrawTextBold(224, 180, 16, 27, white, LanguageText("SEUS ARTISTAS FAVORITOS", "YOUR FAVORITE ARTISTS", "TUS ARTISTAS FAVORITOS"));
-            DrawText(224, 220, 10, 17, grey, LanguageText("Quando sua biblioteca estiver conectada, seus artistas", "When your library is connected, your artists", "Cuando conectes tu biblioteca, tus artistas"));
-            DrawText(224, 243, 10, 17, grey, LanguageText("aparecerão organizados aqui.", "will appear here.", "aparecerán aquí."));
-            DrawCoverArt(224, 293, 72, 1);
-            DrawCoverArt(309, 293, 72, 2);
-            DrawCoverArt(394, 293, 72, 3);
-            DrawCoverArt(479, 293, 72, 4);
-            if (focusArea == FOCUS_CONTENT) {
-                const float xs[4] = {220.0f, 305.0f, 390.0f, 475.0f};
-                DrawFocusBorder(xs[contentIndex % 4], 289, 80, 80, 0xD8C4FFFF);
-            }
+            DrawText(241, 185, 16, 28, purple, "SEUS ARTISTAS");
+            DrawText(241, 237, 11, 20, white, "Seus artistas aparecerao aqui.");
+            DrawText(241, 273, 9, 16, grey, "Sua colecao ficara organizada nesta tela.");
 
         } else if (page == 3) {
-            DrawTextBold(224, 180, 16, 27, white, LanguageText("SUA COLEÇÃO DE ÁLBUNS", "YOUR ALBUM COLLECTION", "TU COLECCIÓN DE ÁLBUMES"));
-            DrawText(224, 220, 10, 17, grey, LanguageText("Capas, lançamentos e álbuns salvos em um só lugar.", "Covers, releases and saved albums in one place.", "Portadas, lanzamientos y álbumes guardados en un solo lugar."));
-            DrawCoverArt(224, 270, 82, 0);
-            DrawCoverArt(321, 270, 82, 1);
-            DrawCoverArt(418, 270, 82, 2);
-            DrawCoverArt(515, 270, 82, 3);
-            DrawCoverArt(612, 270, 82, 4);
-            if (focusArea == FOCUS_CONTENT) {
-                const float xs[5] = {220.0f, 317.0f, 414.0f, 511.0f, 608.0f};
-                DrawFocusBorder(xs[contentIndex % 5], 266, 90, 90, 0xD8C4FFFF);
-            }
+            DrawText(241, 185, 16, 28, purple, "SEUS ALBUNS");
+            DrawText(241, 237, 11, 20, white, "Sua colecao de albuns aparecera aqui.");
 
         } else if (page == 4) {
-            DrawTextBold(224, 180, 16, 27, white, LanguageText("PLAYLISTS PARA CADA MOMENTO", "PLAYLISTS FOR EVERY MOMENT", "LISTAS PARA CADA MOMENTO"));
-            DrawText(224, 220, 10, 17, grey, LanguageText("Organize suas músicas do seu jeito.", "Organize your music your way.", "Organiza tu música a tu manera."));
-            DrawCoverArt(224, 270, 82, 2);
-            DrawCoverArt(321, 270, 82, 4);
-            DrawCoverArt(418, 270, 82, 0);
-            DrawCoverArt(515, 270, 82, 3);
-            DrawCoverArt(612, 270, 82, 1);
-            if (focusArea == FOCUS_CONTENT) {
-                const float xs[5] = {220.0f, 317.0f, 414.0f, 511.0f, 608.0f};
-                DrawFocusBorder(xs[contentIndex % 5], 266, 90, 90, 0xD8C4FFFF);
-            }
+            DrawText(241, 185, 16, 28, purple, "SUAS PLAYLISTS");
+            DrawText(241, 237, 11, 20, white, "Suas playlists aparecerao aqui.");
 
         } else if (page == 5) {
-            DrawTextBold(224, 180, 16, 27, white, LanguageText("CONFIGURAÇÕES", "SETTINGS", "AJUSTES"));
-            DrawText(224, 218, 10, 17, grey, LanguageText("IDIOMA DO APLICATIVO", "APP LANGUAGE", "IDIOMA DE LA APLICACIÓN"));
-
-            const char *languageNames[3] = { "PORTUGUÊS", "ENGLISH", "ESPAÑOL" };
-            const float languageX[3] = { 224.0f, 420.0f, 616.0f };
-            for (int i = 0; i < 3; ++i) {
-                u32 boxColor = (g_language == i) ? 0x49336AFF : 0x242033FF;
-                DrawRect(languageX[i], 255, 174, 54, boxColor, 180.0f);
-                DrawTextBold(languageX[i] + 15, 274, 9, 16,
-                             (g_language == i) ? white : grey, languageNames[i]);
-                if (g_language == i)
-                    DrawFocusBorder(languageX[i] - 2, 253, 178, 58, 0xD8C4FFFF);
-            }
-
-            DrawText(224, 342, 9, 15, purple, LanguageText("ESQUERDA / DIREITA: ALTERAR IDIOMA", "LEFT / RIGHT: CHANGE LANGUAGE", "IZQUIERDA / DERECHA: CAMBIAR IDIOMA"));
-            DrawText(224, 371, 9, 15, grey, LanguageText("A ESCOLHA FICA SALVA NO CONSOLE.", "YOUR CHOICE IS SAVED ON THE CONSOLE.", "TU ELECCIÓN SE GUARDA EN LA CONSOLA."));
-            DrawText(224, 402, 8, 13, grey, LanguageText("TRIÂNGULO: VOLTAR", "TRIANGLE: BACK", "TRIÁNGULO: VOLVER"));
-            if (focusArea == FOCUS_CONTENT)
-                DrawFocusBorder(190, 147, 640, 282, 0xD8C4FFFF);
-
-        } else if (page == 6) {
-            DrawText(224, 211, 11, 19, purple, LanguageText("DESENVOLVIDO POR:", "DEVELOPED BY:", "DESARROLLADO POR:"));
-            DrawTextBold(224, 250, 19, 31, white, "MARCELO GUILHERME");
-            DrawText(224, 334, 9, 15, grey, LanguageText("OBRIGADO POR CONHECER O JEZZ.", "THANK YOU FOR USING JEZZ.", "GRACIAS POR CONOCER JEZZ."));
-            if (focusArea == FOCUS_CONTENT)
-                DrawFocusBorder(190, 147, 640, 282, 0xD8C4FFFF);
-
-        } else if (page == 7) {
-            DrawText(224, 180, 9, 15, purple, LanguageText("CONTRIBUIÇÃO VOLUNTÁRIA", "VOLUNTARY SUPPORT", "APOYO VOLUNTARIO"));
-            DrawText(224, 211, 10, 17, grey, LanguageText("A contribuição é opcional e não é obrigatória.", "Contributions are optional and never required.", "La contribución es opcional y no es obligatoria."));
-            DrawText(224, 240, 10, 17, grey, LanguageText("O JEZZ será sempre gratuito para todos.", "JEZZ will always be free for everyone.", "JEZZ siempre será gratis para todos."));
-
-            DrawRect(224, 278, 560, 1, 0x302442FF, 180.0f);
-            DrawTextBold(224, 296, 11, 19, purple, "PIX:");
-
-            DrawRect(224, 323, 460, 42, 0x242033FF, 180.0f);
-            DrawRect(224, 323, 3, 42, 0x9560FFFF, 100.0f);
-            DrawTextBold(240, 335, 10, 18, white, "Marceloguilher08062007me@gmail.com");
-
-            DrawText(224, 391, 9, 15, grey, LanguageText("OBRIGADO POR APOIAR O PROJETO!", "THANK YOU FOR SUPPORTING THE PROJECT!", "GRACIAS POR APOYAR EL PROYECTO!"));
-            if (focusArea == FOCUS_CONTENT)
-                DrawFocusBorder(190, 147, 640, 282, 0xD8C4FFFF);
+            DrawText(241, 185, 16, 28, purple, "CONFIGURACOES");
+            DrawText(241, 237, 11, 20, white, "JEZZ - Versao 0.3");
+            DrawText(241, 285, 10, 18, grey, "Cima/Baixo: navegar");
+            DrawText(241, 318, 10, 18, grey, "X: selecionar");
+            DrawText(241, 351, 10, 18, grey, "O: voltar ao inicio");
+            DrawText(241, 384, 10, 18, grey, "Triangulo: sair");
         }
     }
 
-    DrawPlayerBar(purple, white, grey, focusArea, playerIndex, volume);
-}
+    // Player inferior
+    DrawRect(0, 447, 848, 65, 0x12101BFF, 50000.0f);
+    DrawRect(0, 447, 848, 2, 0x49336AFF, 100.0f);
 
+    DrawText(22, 458, 10, 18, white, "NADA TOCANDO");
+    DrawText(22, 483, 8, 14, grey, "Sua proxima musica aparecera aqui");
 
-static void DrawExitCountdown(int heldFrames) {
-    if (heldFrames <= 0)
-        return;
+    DrawText(390, 462, 10, 18, grey, "ANTERIOR");
+    DrawText(492, 462, 11, 19, white, "PLAY");
+    DrawText(568, 462, 10, 18, grey, "PROXIMA");
 
-    const int requiredFrames = 300; // 5 segundos a 60 quadros por segundo.
-    int remaining = (requiredFrames - heldFrames + 59) / 60;
-    if (remaining < 1)
-        remaining = 1;
+    DrawRect(385, 493, 260, 3, 0x393344FF, 150.0f);
+    DrawRect(385, 493, 2, 3, purple, 100.0f);
 
-    DrawRect(605, 493, 105, 17, 0x211A30FF, 65.0f);
-    DrawRect(605, 493, 105.0f * (float)heldFrames / (float)requiredFrames,
-             2, 0x9560FFFF, 55.0f);
-
-    char label[24];
-    snprintf(label, sizeof(label), LanguageText("SAIR: %ds", "EXIT: %ds", "SALIR: %ds"), remaining);
-    DrawText(615, 497, 7, 11, 0xFFFFFFFF, label);
+    DrawText(754, 462, 8, 14, grey, "VOLUME");
 }
 
 
@@ -1068,7 +765,6 @@ int main(int argc, const char *argv[]) {
 
     if (tiny3d_Init(1024 * 1024) != TINY3D_OK)
         return 1;
-
     // Ajuste da area virtual para a tela da TV.
     tiny3d_UserViewport(
         1, 0.0f, 0.0f,
@@ -1079,36 +775,32 @@ int main(int argc, const char *argv[]) {
     );
 
     ioPadInit(7);
-    LoadSettings();
+
+    /* Carrega o decodificador PNG do sistema. */
 
     if (sysModuleLoad(SYSMODULE_PNGDEC) == 0) {
+
         g_pngModuleLoaded = true;
+
         LoadLogoTexture();
     }
 
+    /* Abertura animada com a logo oficial. */
+
     PlayBootAnimation();
+
+    /* A fonte é carregada depois da abertura. */
+
     InitFont();
 
     int selected = 0;
     int page = 0;
-    int focusArea = FOCUS_SIDEBAR;
-    int contentRow = 0;
-    int contentIndex = 0;
-    int playerIndex = 1;
-    int volume = 65;
-    int exitHoldFrames = 0;
 
     bool previousUp = false;
     bool previousDown = false;
-    bool previousLeft = false;
-    bool previousRight = false;
     bool previousCross = false;
-    bool previousTriangle = false;
-    bool previousL1 = false;
-    bool previousR1 = false;
-    bool previousSelect = false;
-    bool previousL2 = false;
-    bool previousR2 = false;
+    bool previousCircle = false;
+    bool previousExit = false;
 
     padInfo padinfo;
     padData pad;
@@ -1119,236 +811,62 @@ int main(int argc, const char *argv[]) {
         memset(&pad, 0, sizeof(pad));
 
         ioPadGetInfo(&padinfo);
+
         if (padinfo.status[0])
             ioPadGetData(0, &pad);
 
         const bool up = pad.BTN_UP != 0;
         const bool down = pad.BTN_DOWN != 0;
-        const bool left = pad.BTN_LEFT != 0;
-        const bool right = pad.BTN_RIGHT != 0;
         const bool cross = pad.BTN_CROSS != 0;
         const bool circle = pad.BTN_CIRCLE != 0;
-        const bool triangle = pad.BTN_TRIANGLE != 0;
-        const bool l1 = pad.BTN_L1 != 0;
-        const bool r1 = pad.BTN_R1 != 0;
-        const bool select = pad.BTN_SELECT != 0;
-        const bool l2 = pad.BTN_L2 != 0;
-        const bool r2 = pad.BTN_R2 != 0;
 
-        // L1/R1 percorrem as seis secoes do JEZZ.
-        if (l1 && !previousL1) {
-            selected = (selected + MENU_COUNT - 1) % MENU_COUNT;
+        const bool exitButton =
+            (pad.BTN_TRIANGLE != 0) ||
+            (pad.BTN_START != 0);
+
+        if (up && !previousUp) {
+
+            --selected;
+
+            if (selected < 0)
+                selected = MENU_COUNT - 1;
+        }
+
+        if (down && !previousDown) {
+
+            ++selected;
+
+            if (selected >= MENU_COUNT)
+                selected = 0;
+        }
+
+        if (cross && !previousCross)
             page = selected;
-            focusArea = FOCUS_CONTENT;
-            contentRow = 0;
-            contentIndex = 0;
-        }
 
-        if (r1 && !previousR1) {
-            selected = (selected + 1) % MENU_COUNT;
-            page = selected;
-            focusArea = FOCUS_CONTENT;
-            contentRow = 0;
-            contentIndex = 0;
-        }
+        if (circle && !previousCircle) {
 
-        // SELECT leva diretamente ao player inferior e volta ao conteudo.
-        if (select && !previousSelect) {
-            if (focusArea == FOCUS_PLAYER)
-                focusArea = FOCUS_CONTENT;
-            else
-                focusArea = FOCUS_PLAYER;
-        }
-
-        if (focusArea == FOCUS_SIDEBAR) {
-            if (up && !previousUp) {
-                selected = (selected + MENU_COUNT - 1) % MENU_COUNT;
-            }
-            if (down && !previousDown) {
-                selected = (selected + 1) % MENU_COUNT;
-            }
-            if (right && !previousRight) {
-                page = selected;
-                focusArea = FOCUS_CONTENT;
-                contentRow = 0;
-                contentIndex = 0;
-            }
-            if (cross && !previousCross) {
-                page = selected;
-                focusArea = FOCUS_CONTENT;
-                contentRow = 0;
-                contentIndex = 0;
-            }
-        }
-        else if (focusArea == FOCUS_CONTENT) {
-            if (page == 0) {
-                if (up && !previousUp) {
-                    if (contentRow == 1) {
-                        contentRow = 0;
-                        contentIndex = 0;
-                    } else {
-                        focusArea = FOCUS_SIDEBAR;
-                    }
-                }
-                if (down && !previousDown) {
-                    if (contentRow == 0) {
-                        contentRow = 1;
-                        contentIndex = 0;
-                    } else {
-                        focusArea = FOCUS_PLAYER;
-                        playerIndex = 1;
-                    }
-                }
-                if (left && !previousLeft) {
-                    if (contentRow == 1 && contentIndex > 0)
-                        --contentIndex;
-                    else
-                        focusArea = FOCUS_SIDEBAR;
-                }
-                if (right && !previousRight) {
-                    if (contentRow == 0) {
-                        contentRow = 1;
-                        contentIndex = 0;
-                    } else if (contentIndex < 2) {
-                        ++contentIndex;
-                    }
-                }
-                if (cross && !previousCross) {
-                    if (contentRow == 0) {
-                        selected = 1;
-                        page = 1;
-                        contentRow = 0;
-                        contentIndex = 0;
-                    } else if (contentIndex == 0) {
-                        selected = 3;
-                        page = 3;
-                        contentIndex = 0;
-                    } else if (contentIndex == 1) {
-                        selected = 2;
-                        page = 2;
-                        contentIndex = 0;
-                    } else {
-                        selected = 4;
-                        page = 4;
-                        contentIndex = 0;
-                    }
-                }
-            } else if (page == 2 || page == 3 || page == 4) {
-                int maxIndex = (page == 2) ? 3 : 4;
-                if (left && !previousLeft) {
-                    if (contentIndex > 0)
-                        --contentIndex;
-                    else
-                        focusArea = FOCUS_SIDEBAR;
-                }
-                if (right && !previousRight && contentIndex < maxIndex)
-                    ++contentIndex;
-                if (down && !previousDown)
-                    focusArea = FOCUS_PLAYER;
-                if (up && !previousUp)
-                    focusArea = FOCUS_SIDEBAR;
-            } else if (page == 5) {
-                bool languageChanged = false;
-                if (left && !previousLeft) {
-                    g_language = (g_language + 2) % 3;
-                    languageChanged = true;
-                }
-                if (right && !previousRight) {
-                    g_language = (g_language + 1) % 3;
-                    languageChanged = true;
-                }
-                if (cross && !previousCross) {
-                    g_language = (g_language + 1) % 3;
-                    languageChanged = true;
-                }
-                if (languageChanged)
-                    SaveSettings();
-                if (down && !previousDown)
-                    focusArea = FOCUS_PLAYER;
-                if (up && !previousUp)
-                    focusArea = FOCUS_SIDEBAR;
-
-            } else {
-                if (left && !previousLeft)
-                    focusArea = FOCUS_SIDEBAR;
-                if (down && !previousDown)
-                    focusArea = FOCUS_PLAYER;
-                if (up && !previousUp)
-                    focusArea = FOCUS_SIDEBAR;
-            }
-        }
-        else if (focusArea == FOCUS_PLAYER) {
-            if (left && !previousLeft)
-                playerIndex = (playerIndex + 3) % 4;
-            if (right && !previousRight)
-                playerIndex = (playerIndex + 1) % 4;
-            if (up && !previousUp) {
-                if (playerIndex == 3)
-                    volume = (volume + 5 > 100) ? 100 : volume + 5;
-                else
-                    focusArea = FOCUS_CONTENT;
-            }
-            if (down && !previousDown) {
-                if (playerIndex == 3)
-                    volume = (volume - 5 < 0) ? 0 : volume - 5;
-            }
-            // O player ainda nao tem motor de audio: X apenas seleciona o controle.
-            if (cross && !previousCross) {
-                if (playerIndex == 1)
-                    playerIndex = 1;
-            }
-        }
-
-        // L2/R2 ajustam o volume sem precisar entrar no controle deslizante.
-        if (l2 && !previousL2)
-            volume = (volume - 5 < 0) ? 0 : volume - 5;
-        if (r2 && !previousR2)
-            volume = (volume + 5 > 100) ? 100 : volume + 5;
-
-        // TRIANGULO sempre retorna diretamente para a tela inicial.
-        if (triangle && !previousTriangle) {
             selected = 0;
             page = 0;
-            focusArea = FOCUS_SIDEBAR;
-            contentRow = 0;
-            contentIndex = 0;
         }
 
-        // A saida exige manter CIRCULO pressionado por cinco segundos.
-        // Soltar o botao antes do fim cancela a contagem.
-        if (circle) {
-            if (exitHoldFrames < 300)
-                ++exitHoldFrames;
-            if (exitHoldFrames >= 300)
-                break;
-        } else {
-            exitHoldFrames = 0;
-        }
+        if (exitButton && !previousExit)
+            break;
 
         previousUp = up;
         previousDown = down;
-        previousLeft = left;
-        previousRight = right;
         previousCross = cross;
-        previousTriangle = triangle;
-        previousL1 = l1;
-        previousR1 = r1;
-        previousSelect = select;
-        previousL2 = l2;
-        previousR2 = r2;
+        previousCircle = circle;
+        previousExit = exitButton;
 
-        tiny3d_Clear(0x090811FF, TINY3D_CLEAR_ALL);
-        Setup2D();
-        DrawScreen(
-            selected,
-            page,
-            focusArea,
-            contentRow,
-            contentIndex,
-            playerIndex,
-            volume
+        tiny3d_Clear(
+            0x090811FF,
+            TINY3D_CLEAR_ALL
         );
-        DrawExitCountdown(exitHoldFrames);
+
+        Setup2D();
+
+        DrawScreen(selected, page);
+
         tiny3d_Flip();
     }
 
