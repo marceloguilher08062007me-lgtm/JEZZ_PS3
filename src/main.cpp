@@ -14,17 +14,54 @@
 
 #define JEZZ_LOGO_PATH "/dev_hdd0/game/JEZZ00001/USRDIR/assets/JEZZ_LOGO.PNG"
 
-static const int MENU_COUNT = 6;
-
-static const char *menuItems[MENU_COUNT] = {
-    "INICIO", "BUSCAR", "ARTISTAS",
-    "ALBUNS", "PLAYLISTS", "AJUSTES"
+enum JezzLanguage {
+    LANG_PT = 0,
+    LANG_EN = 1,
+    LANG_ES = 2
 };
 
-static const char *pageTitles[MENU_COUNT] = {
-    "INICIO", "BUSCAR", "ARTISTAS",
-    "ALBUNS", "PLAYLISTS", "AJUSTES"
-};
+static const int MENU_COUNT = 8;
+static int g_language = LANG_PT;
+
+static const char *LanguageText(const char *pt, const char *en, const char *es) {
+    if (g_language == LANG_EN) return en;
+    if (g_language == LANG_ES) return es;
+    return pt;
+}
+
+static const char *MenuItem(int index) {
+    switch (index) {
+        case 0: return LanguageText("INICIO", "HOME", "INICIO");
+        case 1: return LanguageText("BUSCAR", "SEARCH", "BUSCAR");
+        case 2: return LanguageText("ARTISTAS", "ARTISTS", "ARTISTAS");
+        case 3: return LanguageText("ALBUNS", "ALBUMS", "ALBUMES");
+        case 4: return LanguageText("PLAYLISTS", "PLAYLISTS", "LISTAS");
+        case 5: return LanguageText("CONFIGURACOES", "SETTINGS", "AJUSTES");
+        case 6: return LanguageText("CREDITOS", "CREDITS", "CREDITOS");
+        default: return LanguageText("APOIE O PROJETO", "SUPPORT PROJECT", "APOYAR PROYECTO");
+    }
+}
+
+#define JEZZ_SETTINGS_PATH "/dev_hdd0/game/JEZZ00001/USRDIR/jezz_settings.cfg"
+
+static void LoadSettings(void) {
+    FILE *file = fopen(JEZZ_SETTINGS_PATH, "r");
+    if (!file) return;
+
+    int savedLanguage = LANG_PT;
+    if (fscanf(file, "%d", &savedLanguage) == 1 &&
+        savedLanguage >= LANG_PT && savedLanguage <= LANG_ES) {
+        g_language = savedLanguage;
+    }
+    fclose(file);
+}
+
+static void SaveSettings(void) {
+    FILE *file = fopen(JEZZ_SETTINGS_PATH, "w");
+    if (!file) return;
+    fprintf(file, "%d\n", g_language);
+    fclose(file);
+}
 
 enum JezzFocus {
     FOCUS_SIDEBAR = 0,
@@ -516,7 +553,7 @@ static void DrawBootSplash(float progress) {
     );
 
     DrawPixelText(
-        "MUSICA EM TODO LUGAR",
+        LanguageText("MUSICA EM TODO LUGAR", "MUSIC EVERYWHERE", "MUSICA EN TODAS PARTES"),
         330,
         365,
         2.0f,
@@ -524,7 +561,7 @@ static void DrawBootSplash(float progress) {
     );
 
     DrawPixelText(
-        "INICIANDO",
+        LanguageText("INICIANDO", "STARTING", "INICIANDO"),
         365,
         405,
         2.0f,
@@ -678,8 +715,8 @@ static void DrawPlayerBar(
     DrawRect(0, 448, 848, 1, 0x211A30FF, 90.0f);
 
     DrawCoverArt(18, 458, 43, 0);
-    DrawTextBold(73, 458, 10, 18, white, "NADA TOCANDO");
-    DrawText(73, 482, 8, 14, grey, "ESCOLHA UMA FAIXA");
+    DrawTextBold(73, 458, 10, 18, white, LanguageText("NADA TOCANDO", "NOTHING PLAYING", "NADA SONANDO"));
+    DrawText(73, 482, 8, 14, grey, LanguageText("ESCOLHA UMA FAIXA", "CHOOSE A TRACK", "ELIGE UNA CANCION"));
 
     // Controles do player: esquerda, play/pause, proxima e volume.
     DrawText(365, 462, 10, 17, grey, "<<");
@@ -701,11 +738,11 @@ static void DrawPlayerBar(
     DrawRect(355, 495, 250, 3, 0x393344FF, 150.0f);
     DrawRect(355, 495, 3, 3, purple, 100.0f);
 
-    DrawText(535, 459, 7, 12, grey, "L1/R1: SECOES");
-    DrawText(535, 480, 7, 12, grey, "SELECT: PLAYER");
-    DrawText(610, 497, 7, 11, grey, "O: SEGURE 5s");
+    DrawText(535, 459, 7, 12, grey, LanguageText("L1/R1: SECOES", "L1/R1: SECTIONS", "L1/R1: SECCIONES"));
+    DrawText(535, 480, 7, 12, grey, LanguageText("SELECT: PLAYER", "SELECT: PLAYER", "SELECT: REPRODUCTOR"));
+    DrawText(610, 497, 7, 11, grey, LanguageText("O: SEGURE 5s", "HOLD O: 5s", "MANTENER O: 5s"));
 
-    DrawText(720, 459, 8, 14, grey, "VOLUME");
+    DrawText(720, 459, 8, 14, grey, LanguageText("VOLUME", "VOLUME", "VOLUMEN"));
     DrawRect(720, 482, 92, 4, 0x393344FF, 150.0f);
     int knobX = 720 + (volume * 92) / 100;
     DrawRect(720, 482, (float)(volume * 92) / 100.0f, 4, purple, 100.0f);
@@ -716,32 +753,31 @@ static void DrawSidebar(int selected, int focusArea, u32 purple, u32 white, u32 
     DrawRect(0, 62, 176, 385, 0x0D0B15FF, 50000.0f);
     DrawRect(175, 62, 1, 385, 0x292337FF, 40000.0f);
 
-    DrawText(22, 83, 9, 15, grey, "SUA BIBLIOTECA");
+    DrawText(22, 76, 9, 15, grey, LanguageText("MENU PRINCIPAL", "MAIN MENU", "MENU PRINCIPAL"));
 
     for (int i = 0; i < MENU_COUNT; ++i) {
-        float y = 111.0f + (float)i * 46.0f;
+        float y = 96.0f + (float)i * 40.0f;
 
         if (i == selected) {
-            DrawRect(12, y, 151, 37, 0x302044FF, 180.0f);
-            DrawRect(12, y, 3, 37, purple, 100.0f);
-            DrawRect(157, y + 8, 2, 21, 0xB18AEAFF, 90.0f);
+            DrawRect(9, y, 158, 34, 0x302044FF, 180.0f);
+            DrawRect(9, y, 3, 34, purple, 100.0f);
+            DrawRect(164, y + 7, 2, 20, 0xB18AEAFF, 90.0f);
             if (focusArea == FOCUS_SIDEBAR)
-                DrawFocusBorder(9, y - 1, 157, 39, 0xD8C4FFFF);
+                DrawFocusBorder(7, y - 1, 162, 36, 0xD8C4FFFF);
         }
 
         DrawTextBold(
-            29,
-            y + 9,
-            10,
-            18,
+            22,
+            y + 8,
+            9,
+            17,
             (i == selected) ? white : grey,
-            menuItems[i]
+            MenuItem(i)
         );
     }
 
-    DrawRect(20, 393, 135, 1, 0x292337FF, 300.0f);
-    DrawText(22, 405, 8, 14, purple, "JEZZ v0.5");
-    DrawText(22, 425, 7, 12, grey, "INTERACTIVE EDITION");
+    DrawRect(18, 419, 140, 1, 0x292337FF, 300.0f);
+    DrawText(22, 423, 8, 14, purple, "JEZZ v0.6");
 }
 
 
@@ -762,29 +798,29 @@ static void DrawScreen(int selected, int page, int focusArea, int contentRow, in
     DrawRect(41, 18, 4, 26, purple, 100.0f);
     DrawRect(50, 25, 4, 19, purple, 100.0f);
     DrawTextBold(67, 11, 26, 40, white, "JEZZ");
-    DrawText(174, 25, 8, 15, grey, "MUSIC");
+    DrawText(174, 25, 8, 15, grey, LanguageText("MUSICA", "MUSIC", "MUSICA"));
 
     DrawRect(696, 17, 130, 29, 0x1B1726FF, 200.0f);
     DrawRect(708, 28, 5, 5, 0x7DDBA4FF, 100.0f);
-    DrawText(721, 25, 8, 14, grey, "PS3 EDITION");
+    DrawText(721, 25, 8, 14, grey, LanguageText("EDICAO PS3", "PS3 EDITION", "EDICION PS3"));
 
     DrawSidebar(selected, focusArea, purple, white, grey);
 
     // Conteudo principal.
     if (page == 0) {
-        DrawText(196, 76, 9, 16, purple, "BEM-VINDO DE VOLTA");
-        DrawTextBold(196, 94, 19, 30, white, "O QUE VAMOS OUVIR HOJE?");
+        DrawText(196, 76, 9, 16, purple, LanguageText("BEM-VINDO DE VOLTA", "WELCOME BACK", "BIENVENIDO DE NUEVO"));
+        DrawTextBold(196, 94, 19, 30, white, LanguageText("O QUE VAMOS OUVIR HOJE?", "WHAT SHALL WE LISTEN TO?", "QUE VAMOS A ESCUCHAR HOY?"));
 
         // Banner principal de destaque.
         DrawRect(194, 135, 632, 137, 0x171222FF, 320.0f);
         DrawRect(194, 135, 4, 137, purple, 100.0f);
         DrawRect(198, 136, 624, 1, 0x49336AFF, 180.0f);
 
-        DrawText(218, 151, 9, 16, 0xC49BFFFF, "DESTAQUE JEZZ");
-        DrawTextBold(218, 177, 18, 29, white, "DESCUBRA SEU PROXIMO SOM");
-        DrawText(218, 211, 8, 14, grey, "Sua proxima descoberta comeca aqui.");
+        DrawText(218, 151, 9, 16, 0xC49BFFFF, LanguageText("DESTAQUE JEZZ", "JEZZ FEATURE", "DESTACADO JEZZ"));
+        DrawTextBold(218, 177, 18, 29, white, LanguageText("DESCUBRA SEU PROXIMO SOM", "DISCOVER YOUR NEXT SOUND", "DESCUBRE TU PROXIMO SONIDO"));
+        DrawText(218, 211, 8, 14, grey, LanguageText("Sua proxima descoberta comeca aqui.", "Your next discovery starts here.", "Tu proximo descubrimiento empieza aqui."));
         DrawRect(218, 235, 139, 25, 0x65449AFF, 120.0f);
-        DrawTextBold(231, 241, 8, 14, white, "EXPLORAR AGORA");
+        DrawTextBold(231, 241, 8, 14, white, LanguageText("EXPLORAR AGORA", "EXPLORE NOW", "EXPLORAR AHORA"));
 
         // Arte abstrata principal.
         DrawRect(675, 145, 126, 116, 0x261A3BFF, 250.0f);
@@ -799,16 +835,16 @@ static void DrawScreen(int selected, int page, int focusArea, int contentRow, in
         DrawRect(662, 220, 4, 28, 0x65449AFF, 100.0f);
 
         // Secao de atalhos.
-        DrawTextBold(196, 285, 13, 21, white, "EXPLORE SUA MUSICA");
-        DrawText(754, 290, 7, 13, purple, "VER MAIS");
+        DrawTextBold(196, 285, 13, 21, white, LanguageText("EXPLORE SUA MUSICA", "EXPLORE YOUR MUSIC", "EXPLORA TU MUSICA"));
+        DrawText(754, 290, 7, 13, purple, LanguageText("VER MAIS", "SEE MORE", "VER MAS"));
 
         // Card 1.
         DrawRect(194, 316, 202, 109, 0x15121FFF, 320.0f);
         DrawRect(194, 316, 202, 1, 0x302442FF, 180.0f);
         DrawCoverArt(207, 329, 82, 0);
-        DrawTextBold(300, 342, 10, 18, white, "MUSICAS");
-        DrawText(300, 366, 8, 14, grey, "Sua colecao");
-        DrawText(300, 394, 7, 12, purple, "BIBLIOTECA");
+        DrawTextBold(300, 342, 10, 18, white, LanguageText("MUSICAS", "TRACKS", "CANCIONES"));
+        DrawText(300, 366, 8, 14, grey, LanguageText("Sua colecao", "Your collection", "Tu coleccion"));
+        DrawText(300, 394, 7, 12, purple, LanguageText("BIBLIOTECA", "LIBRARY", "BIBLIOTECA"));
         if (focusArea == FOCUS_CONTENT && contentRow == 1 && contentIndex == 0)
             DrawFocusBorder(191, 313, 208, 115, 0xD8C4FFFF);
 
@@ -816,9 +852,9 @@ static void DrawScreen(int selected, int page, int focusArea, int contentRow, in
         DrawRect(407, 316, 202, 109, 0x15121FFF, 320.0f);
         DrawRect(407, 316, 202, 1, 0x263D49FF, 180.0f);
         DrawCoverArt(420, 329, 82, 1);
-        DrawTextBold(513, 342, 10, 18, white, "ARTISTAS");
-        DrawText(513, 366, 8, 14, grey, "Seus favoritos");
-        DrawText(513, 394, 7, 12, 0x70C6D8FF, "DESCUBRA");
+        DrawTextBold(513, 342, 10, 18, white, LanguageText("ARTISTAS", "ARTISTS", "ARTISTAS"));
+        DrawText(513, 366, 8, 14, grey, LanguageText("Seus favoritos", "Your favorites", "Tus favoritos"));
+        DrawText(513, 394, 7, 12, 0x70C6D8FF, LanguageText("DESCUBRA", "DISCOVER", "DESCUBRIR"));
         if (focusArea == FOCUS_CONTENT && contentRow == 1 && contentIndex == 1)
             DrawFocusBorder(404, 313, 208, 115, 0xD8C4FFFF);
 
@@ -826,38 +862,35 @@ static void DrawScreen(int selected, int page, int focusArea, int contentRow, in
         DrawRect(620, 316, 206, 109, 0x15121FFF, 320.0f);
         DrawRect(620, 316, 206, 1, 0x493047FF, 180.0f);
         DrawCoverArt(633, 329, 82, 2);
-        DrawTextBold(726, 342, 10, 18, white, "PLAYLISTS");
-        DrawText(726, 366, 8, 14, grey, "Seus momentos");
-        DrawText(726, 394, 7, 12, 0xD58BAEFF, "COLECOES");
+        DrawTextBold(726, 342, 10, 18, white, LanguageText("PLAYLISTS", "PLAYLISTS", "LISTAS"));
+        DrawText(726, 366, 8, 14, grey, LanguageText("Seus momentos", "Your moments", "Tus momentos"));
+        DrawText(726, 394, 7, 12, 0xD58BAEFF, LanguageText("COLECOES", "COLLECTIONS", "COLECCIONES"));
         if (focusArea == FOCUS_CONTENT && contentRow == 1 && contentIndex == 2)
             DrawFocusBorder(617, 313, 212, 115, 0xD8C4FFFF);
 
-        DrawText(196, 431, 7, 12, 0x827B91FF,
-                 "DESENVOLVIDO POR MARCELO GUILHERME");
-
     } else {
         // Cabecalho das paginas internas.
-        DrawText(196, 78, 9, 15, purple, "SUA BIBLIOTECA");
-        DrawTextBold(196, 98, 23, 37, white, pageTitles[page]);
+        DrawText(196, 78, 9, 15, purple, LanguageText("SUA BIBLIOTECA", "YOUR LIBRARY", "TU BIBLIOTECA"));
+        DrawTextBold(196, 98, 23, 37, white, MenuItem(page));
 
         DrawRect(194, 151, 632, 274, 0x15121FFF, 320.0f);
         DrawRect(194, 151, 4, 274, purple, 100.0f);
         DrawRect(199, 152, 626, 1, 0x302442FF, 180.0f);
 
         if (page == 1) {
-            DrawTextBold(224, 178, 15, 25, white, "ENCONTRE SUA PROXIMA MUSICA");
-            DrawText(224, 210, 9, 15, grey, "BUSQUE POR TITULO, ARTISTA OU ALBUM");
+            DrawTextBold(224, 178, 15, 25, white, LanguageText("ENCONTRE SUA PROXIMA MUSICA", "FIND YOUR NEXT TRACK", "ENCUENTRA TU PROXIMA CANCION"));
+            DrawText(224, 210, 9, 15, grey, LanguageText("BUSQUE POR TITULO, ARTISTA OU ALBUM", "SEARCH BY TITLE, ARTIST OR ALBUM", "BUSCA POR TITULO, ARTISTA O ALBUM"));
             DrawRect(224, 245, 548, 49, 0x242033FF, 180.0f);
             DrawRect(224, 245, 3, 49, purple, 100.0f);
-            DrawText(244, 260, 10, 18, grey, "DIGITE O NOME DE UMA MUSICA OU ARTISTA");
+            DrawText(244, 260, 10, 18, grey, LanguageText("DIGITE O NOME DE UMA MUSICA OU ARTISTA", "ENTER A TRACK OR ARTIST NAME", "ESCRIBE UNA CANCION O ARTISTA"));
             if (focusArea == FOCUS_CONTENT)
                 DrawFocusBorder(220, 241, 556, 57, 0xD8C4FFFF);
-            DrawText(224, 322, 9, 15, purple, "BUSCA DE MUSICA SERA INTEGRADA NAS PROXIMAS ETAPAS.");
+            DrawText(224, 322, 9, 15, purple, LanguageText("BUSCA DE MUSICA SERA INTEGRADA NAS PROXIMAS ETAPAS.", "MUSIC SEARCH WILL BE ADDED IN A FUTURE UPDATE.", "LA BUSQUEDA MUSICAL LLEGARA EN UNA PROXIMA VERSION."));
 
         } else if (page == 2) {
-            DrawTextBold(224, 180, 16, 27, white, "SEUS ARTISTAS FAVORITOS");
-            DrawText(224, 220, 10, 17, grey, "Quando sua biblioteca estiver conectada, seus artistas");
-            DrawText(224, 243, 10, 17, grey, "aparecerao organizados aqui.");
+            DrawTextBold(224, 180, 16, 27, white, LanguageText("SEUS ARTISTAS FAVORITOS", "YOUR FAVORITE ARTISTS", "TUS ARTISTAS FAVORITOS"));
+            DrawText(224, 220, 10, 17, grey, LanguageText("Quando sua biblioteca estiver conectada, seus artistas", "When your library is connected, your artists", "Cuando conectes tu biblioteca, tus artistas"));
+            DrawText(224, 243, 10, 17, grey, LanguageText("aparecerao organizados aqui.", "will appear here.", "apareceran aqui."));
             DrawCoverArt(224, 293, 72, 1);
             DrawCoverArt(309, 293, 72, 2);
             DrawCoverArt(394, 293, 72, 3);
@@ -868,8 +901,8 @@ static void DrawScreen(int selected, int page, int focusArea, int contentRow, in
             }
 
         } else if (page == 3) {
-            DrawTextBold(224, 180, 16, 27, white, "SUA COLECAO DE ALBUNS");
-            DrawText(224, 220, 10, 17, grey, "Capas, lancamentos e albuns salvos em um so lugar.");
+            DrawTextBold(224, 180, 16, 27, white, LanguageText("SUA COLECAO DE ALBUNS", "YOUR ALBUM COLLECTION", "TU COLECCION DE ALBUMES"));
+            DrawText(224, 220, 10, 17, grey, LanguageText("Capas, lancamentos e albuns salvos em um so lugar.", "Covers, releases and saved albums in one place.", "Portadas, lanzamientos y albumes guardados en un solo lugar."));
             DrawCoverArt(224, 270, 82, 0);
             DrawCoverArt(321, 270, 82, 1);
             DrawCoverArt(418, 270, 82, 2);
@@ -881,8 +914,8 @@ static void DrawScreen(int selected, int page, int focusArea, int contentRow, in
             }
 
         } else if (page == 4) {
-            DrawTextBold(224, 180, 16, 27, white, "PLAYLISTS PARA CADA MOMENTO");
-            DrawText(224, 220, 10, 17, grey, "Organize suas musicas do seu jeito.");
+            DrawTextBold(224, 180, 16, 27, white, LanguageText("PLAYLISTS PARA CADA MOMENTO", "PLAYLISTS FOR EVERY MOMENT", "LISTAS PARA CADA MOMENTO"));
+            DrawText(224, 220, 10, 17, grey, LanguageText("Organize suas musicas do seu jeito.", "Organize your music your way.", "Organiza tu musica a tu manera."));
             DrawCoverArt(224, 270, 82, 2);
             DrawCoverArt(321, 270, 82, 4);
             DrawCoverArt(418, 270, 82, 0);
@@ -894,15 +927,41 @@ static void DrawScreen(int selected, int page, int focusArea, int contentRow, in
             }
 
         } else if (page == 5) {
-            DrawTextBold(224, 180, 16, 27, white, "PERSONALIZE SUA EXPERIENCIA");
-            DrawText(224, 225, 10, 17, white, "JEZZ - PREMIUM EDITION");
-            DrawText(224, 254, 9, 15, grey, "L1 / R1: TROCAR SECOES");
-            DrawText(224, 281, 9, 15, grey, "SETAS: NAVEGAR E EXPLORAR CARDS");
-            DrawText(224, 308, 9, 15, grey, "SELECT: ABRIR / FECHAR PLAYER");
-            DrawText(224, 335, 9, 15, grey, "X: SELECIONAR");
-            DrawText(224, 362, 9, 15, grey, "TRIANGULO: VOLTAR AO INICIO");
-            DrawText(224, 389, 9, 15, grey, "O: SEGURE POR 5 SEGUNDOS PARA SAIR");
-            DrawText(224, 414, 7, 11, purple, "L2/R2: AJUSTAR VOLUME NO PLAYER");
+            DrawTextBold(224, 180, 16, 27, white, LanguageText("CONFIGURACOES", "SETTINGS", "AJUSTES"));
+            DrawText(224, 218, 10, 17, grey, LanguageText("IDIOMA DO APLICATIVO", "APP LANGUAGE", "IDIOMA DE LA APLICACION"));
+
+            const char *languageNames[3] = { "PORTUGUES", "ENGLISH", "ESPANOL" };
+            const float languageX[3] = { 224.0f, 420.0f, 616.0f };
+            for (int i = 0; i < 3; ++i) {
+                u32 boxColor = (g_language == i) ? 0x49336AFF : 0x242033FF;
+                DrawRect(languageX[i], 255, 174, 54, boxColor, 180.0f);
+                DrawTextBold(languageX[i] + 15, 274, 9, 16,
+                             (g_language == i) ? white : grey, languageNames[i]);
+                if (g_language == i)
+                    DrawFocusBorder(languageX[i] - 2, 253, 178, 58, 0xD8C4FFFF);
+            }
+
+            DrawText(224, 342, 9, 15, purple, LanguageText("ESQUERDA / DIREITA: ALTERAR IDIOMA", "LEFT / RIGHT: CHANGE LANGUAGE", "IZQUIERDA / DERECHA: CAMBIAR IDIOMA"));
+            DrawText(224, 371, 9, 15, grey, LanguageText("A ESCOLHA FICA SALVA NO CONSOLE.", "YOUR CHOICE IS SAVED ON THE CONSOLE.", "TU ELECCION SE GUARDA EN LA CONSOLA."));
+            DrawText(224, 402, 8, 13, grey, LanguageText("TRIANGULO: VOLTAR", "TRIANGLE: BACK", "TRIANGULO: VOLVER"));
+            if (focusArea == FOCUS_CONTENT)
+                DrawFocusBorder(190, 147, 640, 282, 0xD8C4FFFF);
+
+        } else if (page == 6) {
+            DrawTextBold(224, 180, 18, 29, white, LanguageText("CREDITOS", "CREDITS", "CREDITOS"));
+            DrawText(224, 238, 11, 19, grey, LanguageText("DESENVOLVIDO POR:", "DEVELOPED BY:", "DESARROLLADO POR:"));
+            DrawTextBold(224, 276, 19, 31, white, "MARCELO GUILHERME");
+            DrawText(224, 334, 9, 15, purple, LanguageText("OBRIGADO POR CONHECER O JEZZ.", "THANK YOU FOR USING JEZZ.", "GRACIAS POR CONOCER JEZZ."));
+            if (focusArea == FOCUS_CONTENT)
+                DrawFocusBorder(190, 147, 640, 282, 0xD8C4FFFF);
+
+        } else if (page == 7) {
+            DrawTextBold(224, 180, 18, 29, white, LanguageText("APOIE O PROJETO", "SUPPORT THE PROJECT", "APOYA EL PROYECTO"));
+            DrawText(224, 225, 10, 17, grey, LanguageText("SUA CONTRIBUICAO E VOLUNTARIA E NAO E OBRIGATORIA.", "YOUR CONTRIBUTION IS VOLUNTARY AND NOT REQUIRED.", "TU CONTRIBUCION ES VOLUNTARIA Y NO ES OBLIGATORIA."));
+            DrawText(224, 255, 10, 17, grey, LanguageText("O JEZZ SERA SEMPRE GRATUITO PARA TODOS.", "JEZZ WILL ALWAYS BE FREE FOR EVERYONE.", "JEZZ SIEMPRE SERA GRATIS PARA TODOS."));
+            DrawTextBold(224, 310, 11, 19, purple, "PIX:");
+            DrawTextBold(224, 344, 10, 18, white, "Marceloguilher08062007me@gmail.com");
+            DrawText(224, 391, 9, 15, grey, LanguageText("OBRIGADO POR APOIAR O PROJETO!", "THANK YOU FOR SUPPORTING THE PROJECT!", "GRACIAS POR APOYAR EL PROYECTO!"));
             if (focusArea == FOCUS_CONTENT)
                 DrawFocusBorder(190, 147, 640, 282, 0xD8C4FFFF);
         }
@@ -926,7 +985,7 @@ static void DrawExitCountdown(int heldFrames) {
              2, 0x9560FFFF, 55.0f);
 
     char label[24];
-    snprintf(label, sizeof(label), "SAIR: %ds", remaining);
+    snprintf(label, sizeof(label), LanguageText("SAIR: %ds", "EXIT: %ds", "SALIR: %ds"), remaining);
     DrawText(615, 497, 7, 11, 0xFFFFFFFF, label);
 }
 
@@ -949,6 +1008,7 @@ int main(int argc, const char *argv[]) {
     );
 
     ioPadInit(7);
+    LoadSettings();
 
     if (sysModuleLoad(SYSMODULE_PNGDEC) == 0) {
         g_pngModuleLoaded = true;
@@ -1116,6 +1176,27 @@ int main(int argc, const char *argv[]) {
                     focusArea = FOCUS_PLAYER;
                 if (up && !previousUp)
                     focusArea = FOCUS_SIDEBAR;
+            } else if (page == 5) {
+                bool languageChanged = false;
+                if (left && !previousLeft) {
+                    g_language = (g_language + 2) % 3;
+                    languageChanged = true;
+                }
+                if (right && !previousRight) {
+                    g_language = (g_language + 1) % 3;
+                    languageChanged = true;
+                }
+                if (cross && !previousCross) {
+                    g_language = (g_language + 1) % 3;
+                    languageChanged = true;
+                }
+                if (languageChanged)
+                    SaveSettings();
+                if (down && !previousDown)
+                    focusArea = FOCUS_PLAYER;
+                if (up && !previousUp)
+                    focusArea = FOCUS_SIDEBAR;
+
             } else {
                 if (left && !previousLeft)
                     focusArea = FOCUS_SIDEBAR;
