@@ -29,6 +29,7 @@ static const char *pageTitles[MENU_COUNT] = {
 static FT_Library g_ftLibrary;
 static FT_Face g_ftFace;
 static bool g_fontReady = false;
+static bool g_boldFontReady = false;
 
 static bool g_pngModuleLoaded = false;
 
@@ -109,51 +110,55 @@ static void TTFToBitmap(
 
 
 static bool InitFont(void) {
-
     if (FT_Init_FreeType(&g_ftLibrary))
         return false;
 
-    const char *fontPath =
-        "/dev_hdd0/game/JEZZ00001/USRDIR/assets/JEZZ_FONT.ttf";
-
-    if (FT_New_Face(g_ftLibrary, fontPath, 0, &g_ftFace)) {
-
-        FT_Done_FreeType(g_ftLibrary);
-        g_ftFace = 0;
-
-        return false;
-    }
-
     void *fontTexture = tiny3d_AllocTexture(16 * 1024 * 1024);
-
     if (!fontTexture) {
-
-        FT_Done_Face(g_ftFace);
         FT_Done_FreeType(g_ftLibrary);
-
-        g_ftFace = 0;
-
         return false;
     }
 
     ResetFont();
 
+    const char *regularPath =
+        "/dev_hdd0/game/JEZZ00001/USRDIR/assets/JEZZ_FONT_REGULAR.ttf";
+
+    if (FT_New_Face(g_ftLibrary, regularPath, 0, &g_ftFace)) {
+        FT_Done_FreeType(g_ftLibrary);
+        g_ftFace = 0;
+        return false;
+    }
+
     u8 *fontEnd = AddFontFromTTF(
-        (u8 *)fontTexture,
-        32,
-        126,
-        64,
-        64,
-        TTFToBitmap
+        (u8 *)fontTexture, 32, 126, 64, 64, TTFToBitmap
     );
 
     FT_Done_Face(g_ftFace);
-    FT_Done_FreeType(g_ftLibrary);
-
     g_ftFace = 0;
 
-    g_fontReady = (fontEnd != 0);
+    if (!fontEnd) {
+        FT_Done_FreeType(g_ftLibrary);
+        return false;
+    }
 
+    g_fontReady = true;
+
+    const char *boldPath =
+        "/dev_hdd0/game/JEZZ00001/USRDIR/assets/JEZZ_FONT.ttf";
+
+    if (!FT_New_Face(g_ftLibrary, boldPath, 0, &g_ftFace)) {
+        fontEnd = AddFontFromTTF(
+            fontEnd, 32, 126, 64, 64, TTFToBitmap
+        );
+
+        FT_Done_Face(g_ftFace);
+        g_ftFace = 0;
+
+        g_boldFontReady = (fontEnd != 0);
+    }
+
+    FT_Done_FreeType(g_ftLibrary);
     return g_fontReady;
 }
 
@@ -565,6 +570,24 @@ static void DrawText(
     DrawString(x, y, (char *)value);
 }
 
+static void DrawTextBold(
+    float x,
+    float y,
+    int width,
+    int height,
+    u32 color,
+    const char *value
+) {
+    if (!g_fontReady || !value)
+        return;
+
+    SetCurrentFont(g_boldFontReady ? 1 : 0);
+    SetFontSize(width, height);
+    SetFontColor(color, 0x00000000);
+    SetFontZ(0.0f);
+    DrawString(x, y, (char *)value);
+}
+
 
 /* =========================================================
    INTERFACE PRINCIPAL
@@ -589,8 +612,8 @@ static void DrawScreen(int selected, int page) {
     DrawRect(42, 18, 4, 27, purple, 100.0f);
     DrawRect(51, 25, 4, 20, purple, 100.0f);
 
-    DrawText(68, 12, 26, 40, white, "JEZZ");
-    DrawText(112, 25, 9, 16, grey, "MUSIC PLAYER");
+    DrawTextBold(68, 12, 26, 40, white, "JEZZ");
+    DrawText(165, 25, 9, 16, grey, "MUSIC PLAYER");
     DrawText(730, 25, 9, 16, grey, "PS3 EDITION");
 
     // Menu lateral
