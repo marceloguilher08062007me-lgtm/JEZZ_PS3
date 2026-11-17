@@ -25,12 +25,30 @@ jobs:
           mkdir ps3dev
           tar -xzf ps3dev.tar.gz -C ps3dev
 
-      - name: Configure environment
+      - name: Locate toolchain
         run: |
-          echo "PS3DEV=$GITHUB_WORKSPACE/ps3dev" >> $GITHUB_ENV
-          echo "PSL1GHT=$GITHUB_WORKSPACE/ps3dev" >> $GITHUB_ENV
-          echo "$GITHUB_WORKSPACE/ps3dev/bin" >> $GITHUB_PATH
-          echo "$GITHUB_WORKSPACE/ps3dev/ppu/bin" >> $GITHUB_PATH
+          RULES=$(find "$GITHUB_WORKSPACE/ps3dev" -name ppu_rules -print -quit)
+          PPU_GCC=$(find "$GITHUB_WORKSPACE/ps3dev" -path '*/ppu/bin/ppu-gcc' -print -quit)
+
+          if [ -z "$RULES" ]; then
+            echo "ERRO: ppu_rules nao encontrado"
+            find ps3dev -maxdepth 4 -type f | head -100
+            exit 1
+          fi
+
+          if [ -z "$PPU_GCC" ]; then
+            echo "ERRO: ppu-gcc nao encontrado"
+            exit 1
+          fi
+
+          PSL1GHT=$(dirname "$RULES")
+          PS3DEV=$(dirname "$(dirname "$(dirname "$PPU_GCC")")")
+
+          echo "PSL1GHT=$PSL1GHT" >> "$GITHUB_ENV"
+          echo "PS3DEV=$PS3DEV" >> "$GITHUB_ENV"
+          echo "PORTLIBS=$PS3DEV/portlibs/ppu" >> "$GITHUB_ENV"
+          echo "$PS3DEV/bin" >> "$GITHUB_PATH"
+          echo "$PS3DEV/ppu/bin" >> "$GITHUB_PATH"
 
       - name: Build JEZZ
         run: |
@@ -46,4 +64,3 @@ jobs:
         with:
           name: JEZZ-PS3-ELF
           path: JEZZ.elf
-
