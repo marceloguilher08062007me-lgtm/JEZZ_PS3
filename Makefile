@@ -15,10 +15,11 @@ TARGET := JEZZ
 BUILD := build
 SOURCES := src
 DATA :=
+PKGFILES := $(CURDIR)/pkgfiles
 INCLUDES := include
 LIBDIRS := $(PORTLIBS)
 
-LIBS := -lfont3d -lfreetype -lpng -ltiny3d -lrsx -lz -lsimdmath -lgcm_sys -lio -lsysutil -lrt -llv2 -lsysmodule -lm
+LIBS := -lfont3d -lfreetype -lpng -lpngdec -ltiny3d -lrsx -lz -lsimdmath -lgcm_sys -lio -lsysutil -lrt -llv2 -lsysmodule -lm
 
 CFLAGS = -O2 -Wall -mcpu=cell $(MACHDEP) $(INCLUDE) -I$(PORTLIBS)/include/freetype2
 CXXFLAGS = $(CFLAGS)
