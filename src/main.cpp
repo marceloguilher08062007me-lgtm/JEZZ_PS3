@@ -980,10 +980,20 @@ static void DrawScreen(int selected, int page, int focusArea, int contentRow, in
             DrawRect(224, 245, 3, 32, purple, 100.0f);
             DrawText(240, 253, 9, 16, g_searchText[0] ? white : grey,
                      g_searchText[0] ? g_searchText : LanguageText("SELECIONE PARA DIGITAR...", "SELECT TO TYPE...", "SELECCIONA PARA ESCRIBIR..."));
+            // Cursor vertical piscante no fim do texto digitado.
+            if (g_keyboardOpen) {
+                static unsigned int cursorBlinkFrame = 0;
+                ++cursorBlinkFrame;
+                if ((cursorBlinkFrame / 30) % 2 == 0) {
+                    int cursorX = 240 + (int)strlen(g_searchText) * 9;
+                    if (cursorX > 766) cursorX = 766;
+                    DrawRect(cursorX, 250, 2, 19, 0xFFFFFFFF, 120.0f);
+                }
+            }
             if (!g_keyboardOpen && focusArea == FOCUS_CONTENT)
                 DrawFocusBorder(220, 241, 556, 40, 0xD8C4FFFF);
             if (g_keyboardOpen) {
-                DrawText(224, 284, 8, 13, purple, LanguageText("D-PAD: MOVER  X: SELECIONAR  TRIÂNGULO: FECHAR", "D-PAD: MOVE  X: SELECT  TRIANGLE: CLOSE", "D-PAD: MOVER  X: ELEGIR  TRIÁNGULO: CERRAR"));
+                DrawText(475, 216, 6, 10, purple, LanguageText("D-PAD: MOVER  X: SELECIONAR  TRIÂNGULO: FECHAR", "D-PAD: MOVE  X: SELECT  TRIANGLE: CLOSE", "D-PAD: MOVER  X: ELEGIR  TRIÁNGULO: CERRAR"));
                 DrawVirtualKeyboard();
             } else {
                 DrawText(224, 322, 9, 15, purple, LanguageText("X: ABRIR TECLADO VIRTUAL", "X: OPEN VIRTUAL KEYBOARD", "X: ABRIR TECLADO VIRTUAL"));
