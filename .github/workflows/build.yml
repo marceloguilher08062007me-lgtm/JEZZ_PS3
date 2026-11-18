@@ -85,7 +85,18 @@ jobs:
           cat > "$RUNNER_TEMP/jezz-polarssl-make" <<'SH'
           #!/usr/bin/env bash
           set -euo pipefail
+
+          echo "=== APLICANDO CORRECAO POLARSSL ==="
           python3 "$GITHUB_WORKSPACE/scripts/patch_polarssl_entropy.py" "$PWD/entropy_poll.c"
+
+          echo "=== CONFERINDO FONTE ANTES DA COMPILACAO ==="
+          sed -n '/int platform_entropy_poll/,/^}/p' entropy_poll.c
+
+          grep -q "sysGetRandomNumber(output + produced" entropy_poll.c || {
+              echo "ERRO: correcao nao encontrada na fonte."
+              exit 1
+          }
+
           exec make "$@"
           SH
           chmod +x "$RUNNER_TEMP/jezz-polarssl-make"
