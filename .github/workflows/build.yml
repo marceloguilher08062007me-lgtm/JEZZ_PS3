@@ -97,6 +97,9 @@ jobs:
           test -s "$PORTLIBS/lib/libcurl.a"
           test -s "$PORTLIBS/include/curl/curl.h"
           test -d "$PORTLIBS/include/polarssl"
+          echo "=== VERIFICANDO POLARSSL COMPILADO ==="
+          ppu-nm -A "$PORTLIBS/lib/libpolarssl.a" | grep -E 'platform_entropy_poll|sysGetRandomNumber' || true
+          echo "=== FIM DA VERIFICACAO ==="
 
       - name: Build and install Tiny3D
         run: |
