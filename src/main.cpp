@@ -16,6 +16,7 @@
 #include <net/netctl.h>
 #include <sys/thread.h>
 #include <curl/curl.h>
+#include <lv2/system.h>
 
 #define JEZZ_LOGO_PATH "/dev_hdd0/game/JEZZ00001/USRDIR/assets/JEZZ_LOGO.PNG"
 
@@ -1499,6 +1500,29 @@ int main(int argc, const char *argv[]) {
         }
     }
     curl_global_init(CURL_GLOBAL_DEFAULT);
+
+    // Diagnóstico temporário da fonte de aleatoriedade do PS3.
+    {
+        unsigned char randomBytes[16] = {0};
+        u32 randomResult = sysGetRandomNumber(randomBytes, sizeof(randomBytes));
+
+        FILE *randomLog = fopen(
+            "/dev_hdd0/game/JEZZ00001/USRDIR/JEZZ_RANDOM_TEST.txt", "w"
+        );
+
+        if (randomLog) {
+            fprintf(randomLog, "sysGetRandomNumber retorno: %u (0x%08X)\n",
+                    randomResult, randomResult);
+
+            fprintf(randomLog, "Bytes: ");
+            for (int i = 0; i < 16; i++)
+                fprintf(randomLog, "%02X", randomBytes[i]);
+
+            fprintf(randomLog, "\n");
+            fclose(randomLog);
+        }
+    }
+
 
     if (sysModuleLoad(SYSMODULE_PNGDEC) == 0) {
         g_pngModuleLoaded = true;
