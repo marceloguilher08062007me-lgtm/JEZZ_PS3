@@ -11,6 +11,9 @@
 
 #include <pngdec/pngdec.h>
 #include <sysmodule/sysmodule.h>
+#include <sys/timer.h>
+#include <net/net.h>
+#include <net/netctl.h>
 #include <sys/thread.h>
 #include <curl/curl.h>
 
@@ -77,6 +80,11 @@ static bool g_fontReady = false;
 static bool g_boldFontReady = false;
 
 static bool g_pngModuleLoaded = false;
+static bool g_netModuleLoaded = false;
+static bool g_netCtlModuleLoaded = false;
+static bool g_netInitialized = false;
+static bool g_netCtlInitialized = false;
+
 
 // Teclado virtual e resultados da busca online.
 static char g_searchText[128] = {0};
@@ -219,38 +227,70 @@ static bool JsonReadStringRange(const char *start, const char *end,
 }
 
 static void SearchAudius(const char *query) {
-    char titles[6][128];
-    char artists[6][96];
+    char titles[6][128] = {{0}};
+    char artists[6][96] = {{0}};
     int resultCount = 0;
     char statusText[96];
-    snprintf(statusText, sizeof(statusText), "%s", LanguageText("CONECTANDO AO AUDIUS...", "CONNECTING TO AUDIUS...", "CONECTANDO A AUDIUS..."));
 
-    CURL *curl = curl_easy_init();
-    if (!curl) {
-        snprintf(statusText, sizeof(statusText), "%s", LanguageText("ERRO AO INICIAR A BUSCA.", "SEARCH INITIALIZATION ERROR.", "ERROR AL INICIAR LA BÚSQUEDA."));
+    snprintf(statusText, sizeof(statusText), "%s",
+        LanguageText("AGUARDANDO REDE...", "WAITING FOR NETWORK...", "ESPERANDO RED..."));
+
+    // Aguarda o PS3 obter um endereço IP.
+    bool networkReady = false;
+    for (int i = 0; i < 30; ++i) {
+        s32 state = -1;
+        if (netCtlGetState(&state) == 0 &&
+            state == NET_CTL_STATE_IPObtained) {
+            networkReady = true;
+            break;
+        }
+        sys_timer_usleep(1000000);
+    }
+
+    if (!networkReady) {
+        snprintf(statusText, sizeof(statusText), "%s",
+            LanguageText("REDE SEM IP. VERIFIQUE A INTERNET.",
+                         "NETWORK HAS NO IP. CHECK INTERNET.",
+                         "RED SIN IP. REVISA INTERNET."));
         goto publish;
     }
 
     {
+        CURL *curl = curl_easy_init();
+        if (!curl) {
+            snprintf(statusText, sizeof(statusText), "%s",
+                LanguageText("ERRO AO INICIAR A BUSCA.",
+                             "SEARCH INITIALIZATION ERROR.",
+                             "ERROR AL INICIAR LA BUSQUEDA."));
+            goto publish;
+        }
+
         char *escaped = curl_easy_escape(curl, query, 0);
         if (!escaped) {
             curl_easy_cleanup(curl);
-            snprintf(statusText, sizeof(statusText), "%s", "ERRO NO TEXTO DA BUSCA.");
+            snprintf(statusText, sizeof(statusText), "%s",
+                     "ERRO NO TEXTO DA BUSCA.");
             goto publish;
         }
 
         char url[512];
-        snprintf(url, sizeof(url), "https://api.audius.co/v1/tracks/search?query=%s&limit=6", escaped);
+        snprintf(url, sizeof(url),
+            "https://api.audius.co/v1/tracks/search?query=%s&limit=6",
+            escaped);
         curl_free(escaped);
 
         JezzHttpBuffer response;
         memset(&response, 0, sizeof(response));
+
+        char curlError[CURL_ERROR_SIZE] = {0};
+
         curl_easy_setopt(curl, CURLOPT_URL, url);
         curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, JezzCurlWrite);
         curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response);
+        curl_easy_setopt(curl, CURLOPT_ERRORBUFFER, curlError);
         curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
-        curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 10L);
-        curl_easy_setopt(curl, CURLOPT_TIMEOUT, 20L);
+        curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 15L);
+        curl_easy_setopt(curl, CURLOPT_TIMEOUT, 30L);
         curl_easy_setopt(curl, CURLOPT_NOSIGNAL, 1L);
         curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 1L);
         curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 2L);
@@ -259,70 +299,135 @@ static void SearchAudius(const char *query) {
         CURLcode rc = curl_easy_perform(curl);
         long httpStatus = 0;
         curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &httpStatus);
+
+        if (rc != CURLE_OK) {
+            const char *detail = curlError[0]
+                ? curlError : curl_easy_strerror(rc);
+            snprintf(statusText, sizeof(statusText),
+                     "CURL %d: %.65s", (int)rc, detail);
+            curl_easy_cleanup(curl);
+            goto publish;
+        }
+
         curl_easy_cleanup(curl);
 
-        if (rc != CURLE_OK || httpStatus != 200) {
-            snprintf(statusText, sizeof(statusText), "%s", LanguageText("FALHA NA CONEXÃO. TENTE NOVAMENTE.", "CONNECTION FAILED. TRY AGAIN.", "FALLO DE CONEXIÓN. INTENTA OTRA VEZ."));
+        if (httpStatus != 200) {
+            snprintf(statusText, sizeof(statusText),
+                     "AUDIUS HTTP: %ld", httpStatus);
             goto publish;
         }
 
         const char *dataKey = strstr(response.data, "\"data\"");
         const char *arrayStart = dataKey ? strchr(dataKey, '[') : NULL;
+
         if (!arrayStart) {
-            snprintf(statusText, sizeof(statusText), "%s", LanguageText("RESPOSTA INVÁLIDA DA FONTE.", "INVALID SOURCE RESPONSE.", "RESPUESTA NO VÁLIDA DE LA FUENTE."));
+            snprintf(statusText, sizeof(statusText), "%s",
+                LanguageText("RESPOSTA INVALIDA DA FONTE.",
+                             "INVALID SOURCE RESPONSE.",
+                             "RESPUESTA NO VALIDA DE LA FUENTE."));
             goto publish;
         }
 
-        const char *arrayEnd = JsonArrayEnd(arrayStart, response.data + response.used);
+        const char *arrayEnd =
+            JsonArrayEnd(arrayStart, response.data + response.used);
+
         if (!arrayEnd) {
-            snprintf(statusText, sizeof(statusText), "%s", LanguageText("RESPOSTA JSON INCOMPLETA.", "INCOMPLETE JSON RESPONSE.", "RESPUESTA JSON INCOMPLETA."));
+            snprintf(statusText, sizeof(statusText), "%s",
+                LanguageText("RESPOSTA JSON INCOMPLETA.",
+                             "INCOMPLETE JSON RESPONSE.",
+                             "RESPUESTA JSON INCOMPLETA."));
             goto publish;
         }
+
         const char *p = arrayStart + 1;
+
         while (p < arrayEnd && resultCount < 6) {
-            while (p < arrayEnd && (*p == ' ' || *p == '\t' || *p == '\r' || *p == '\n' || *p == ',')) ++p;
+            while (p < arrayEnd &&
+                   (*p == ' ' || *p == '\t' ||
+                    *p == '\r' || *p == '\n' || *p == ',')) {
+                ++p;
+            }
+
             if (p >= arrayEnd) break;
-            if (*p != '{') { ++p; continue; }
+            if (*p != '{') {
+                ++p;
+                continue;
+            }
 
             const char *objectEnd = JsonObjectEnd(p, arrayEnd);
             if (!objectEnd) break;
 
             char title[128] = "";
             char artist[96] = "Audius";
-            if (JsonReadStringRange(p, objectEnd + 1, "title", title, sizeof(title)) && title[0]) {
-                const char *userValue = JsonFindKey(p, objectEnd + 1, "user");
+
+            if (JsonReadStringRange(
+                    p, objectEnd + 1, "title", title, sizeof(title)) &&
+                title[0]) {
+
+                const char *userValue =
+                    JsonFindKey(p, objectEnd + 1, "user");
+
                 if (userValue) {
-                    while (userValue < objectEnd && (*userValue == ' ' || *userValue == '\t' || *userValue == '\r' || *userValue == '\n')) ++userValue;
+                    while (userValue < objectEnd &&
+                           (*userValue == ' ' || *userValue == '\t' ||
+                            *userValue == '\r' || *userValue == '\n')) {
+                        ++userValue;
+                    }
+
                     if (userValue < objectEnd && *userValue == '{') {
-                        const char *userEnd = JsonObjectEnd(userValue, objectEnd + 1);
-                        if (userEnd) JsonReadStringRange(userValue, userEnd + 1, "name", artist, sizeof(artist));
+                        const char *userEnd =
+                            JsonObjectEnd(userValue, objectEnd + 1);
+                        if (userEnd) {
+                            JsonReadStringRange(
+                                userValue, userEnd + 1,
+                                "name", artist, sizeof(artist));
+                        }
                     }
                 }
-                strncpy(titles[resultCount], title, sizeof(titles[0]) - 1);
+
+                strncpy(titles[resultCount], title,
+                        sizeof(titles[0]) - 1);
                 titles[resultCount][sizeof(titles[0]) - 1] = 0;
-                strncpy(artists[resultCount], artist, sizeof(artists[0]) - 1);
+
+                strncpy(artists[resultCount], artist,
+                        sizeof(artists[0]) - 1);
                 artists[resultCount][sizeof(artists[0]) - 1] = 0;
+
                 ++resultCount;
             }
+
             p = objectEnd + 1;
         }
 
-        if (resultCount)
-            snprintf(statusText, sizeof(statusText), "%d %s", resultCount, LanguageText("RESULTADOS - AUDIUS", "RESULTS - AUDIUS", "RESULTADOS - AUDIUS"));
-        else
-            snprintf(statusText, sizeof(statusText), "%s", LanguageText("NENHUMA FAIXA ENCONTRADA.", "NO TRACKS FOUND.", "NO SE ENCONTRARON CANCIONES."));
+        if (resultCount) {
+            snprintf(statusText, sizeof(statusText), "%d %s",
+                resultCount,
+                LanguageText("RESULTADOS - AUDIUS",
+                             "RESULTS - AUDIUS",
+                             "RESULTADOS - AUDIUS"));
+        } else {
+            snprintf(statusText, sizeof(statusText), "%s",
+                LanguageText("NENHUMA FAIXA ENCONTRADA.",
+                             "NO TRACKS FOUND.",
+                             "NO SE ENCONTRARON CANCIONES."));
+        }
     }
 
 publish:
     // Publica os resultados somente depois que a resposta estiver pronta.
     memset(g_resultTitle, 0, sizeof(g_resultTitle));
     memset(g_resultArtist, 0, sizeof(g_resultArtist));
+
     for (int i = 0; i < resultCount; ++i) {
-        strncpy(g_resultTitle[i], titles[i], sizeof(g_resultTitle[i]) - 1);
-        strncpy(g_resultArtist[i], artists[i], sizeof(g_resultArtist[i]) - 1);
+        strncpy(g_resultTitle[i], titles[i],
+                sizeof(g_resultTitle[i]) - 1);
+        strncpy(g_resultArtist[i], artists[i],
+                sizeof(g_resultArtist[i]) - 1);
     }
+
     g_resultCount = resultCount;
-    snprintf(g_searchStatus, sizeof(g_searchStatus), "%s", statusText);
+    snprintf(g_searchStatus, sizeof(g_searchStatus),
+             "%s", statusText);
 }
 
 static void AudiusSearchThread(void *arg) {
@@ -1380,7 +1485,18 @@ int main(int argc, const char *argv[]) {
     ioPadInit(7);
     LoadSettings();
     // A pilha de rede do sistema deve estar ativa para o libcurl.
-    sysModuleLoad(SYSMODULE_NET);
+    // Inicializa a pilha de rede do PS3.
+    if (sysModuleLoad(SYSMODULE_NET) == 0) {
+        g_netModuleLoaded = true;
+        if (sysModuleLoad(SYSMODULE_NETCTL) == 0) {
+            g_netCtlModuleLoaded = true;
+            if (netInitialize() == 0) {
+                g_netInitialized = true;
+                if (netCtlInit() == 0)
+                    g_netCtlInitialized = true;
+            }
+        }
+    }
     curl_global_init(CURL_GLOBAL_DEFAULT);
 
     if (sysModuleLoad(SYSMODULE_PNGDEC) == 0) {
@@ -1722,6 +1838,18 @@ int main(int argc, const char *argv[]) {
         g_searchThreadActive = false;
     }
     curl_global_cleanup();
+
+    if (g_netCtlInitialized)
+        netCtlTerm();
+
+    if (g_netInitialized)
+        netDeinitialize();
+
+    if (g_netCtlModuleLoaded)
+        sysModuleUnload(SYSMODULE_NETCTL);
+
+    if (g_netModuleLoaded)
+        sysModuleUnload(SYSMODULE_NET);
 
     if (g_pngModuleLoaded)
         sysModuleUnload(SYSMODULE_PNGDEC);
