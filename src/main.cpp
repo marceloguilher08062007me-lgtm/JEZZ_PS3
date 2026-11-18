@@ -11,7 +11,7 @@
 
 #include <pngdec/pngdec.h>
 #include <sysmodule/sysmodule.h>
-#include <sys/timer.h>
+#include <sys/systime.h>
 #include <net/net.h>
 #include <net/netctl.h>
 #include <sys/thread.h>
@@ -244,7 +244,7 @@ static void SearchAudius(const char *query) {
             networkReady = true;
             break;
         }
-        sys_timer_usleep(1000000);
+        sysUsleep(1000000);
     }
 
     if (!networkReady) {
