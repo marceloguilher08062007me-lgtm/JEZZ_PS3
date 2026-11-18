@@ -101,6 +101,21 @@ jobs:
           ppu-nm -A "$PORTLIBS/lib/libpolarssl.a" | grep -E 'platform_entropy_poll|sysGetRandomNumber' || true
           ppu-objdump -d "$PORTLIBS/lib/libpolarssl.a" | grep -A35 -B5 "platform_entropy_poll" | grep "sysGetRandomNumber" || true
           echo "=== FIM DA VERIFICACAO ==="
+          echo "=== INSPECAO DO ENTROPY_POLL.O ==="
+          INSPECT_DIR="$RUNNER_TEMP/jezz-polarssl-inspect"
+          mkdir -p "$INSPECT_DIR"
+          (
+            cd "$INSPECT_DIR"
+            if ppu-ar x "$PORTLIBS/lib/libpolarssl.a" entropy_poll.o; then
+              echo "=== SIMBOLOS NAO RESOLVIDOS ==="
+              ppu-nm -u entropy_poll.o || true
+              echo "=== CHAMADAS NO CODIGO COMPILADO ==="
+              ppu-objdump -dr entropy_poll.o | grep -n -A60 -B10 -E 'platform_entropy_poll|sysGetRandomNumber' || true
+            else
+              echo "ERRO: nao foi possivel extrair entropy_poll.o"
+            fi
+          )
+          echo "=== FIM DA INSPECAO ==="
 
       - name: Build and install Tiny3D
         run: |
