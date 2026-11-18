@@ -92,6 +92,7 @@ static bool g_keyboardOpen = false;
 static int g_keyboardRow = 0;
 static int g_keyboardCol = 0;
 static bool g_searchRequested = false;
+static bool g_previousStart = false;
 static volatile bool g_searchBusy = false;
 static bool g_searchThreadActive = false;
 static sys_ppu_thread_t g_searchThread;
@@ -1565,7 +1566,7 @@ int main(int argc, const char *argv[]) {
             g_searchQuery[sizeof(g_searchQuery) - 1] = 0;
             g_searchBusy = true;
             if (sysThreadCreate(&g_searchThread, AudiusSearchThread, g_searchQuery,
-                                1001, 0x10000, THREAD_JOINABLE, (char *)"JEZZ_AUDIUS") == 0) {
+                                1001, 0x40000, THREAD_JOINABLE, (char *)"JEZZ_AUDIUS") == 0) {
                 g_searchThreadActive = true;
             } else {
                 g_searchBusy = false;
@@ -1574,6 +1575,11 @@ int main(int argc, const char *argv[]) {
         }
 
         if (g_keyboardOpen) {
+            if (pad.BTN_START && !g_previousStart && g_searchText[0] != '\0') {
+                g_searchRequested = true;
+                g_keyboardOpen = false;
+            }
+
             if (up && !previousUp) g_keyboardRow = (g_keyboardRow + 3) % 4;
             if (down && !previousDown) g_keyboardRow = (g_keyboardRow + 1) % 4;
             if (left && !previousLeft) g_keyboardCol = (g_keyboardCol + 9) % 10;
@@ -1807,6 +1813,7 @@ int main(int argc, const char *argv[]) {
         previousDown = down;
         previousLeft = left;
         previousRight = right;
+        g_previousStart = pad.BTN_START != 0;
         previousCross = cross;
         previousTriangle = triangle;
         previousL1 = l1;
