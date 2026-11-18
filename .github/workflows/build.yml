@@ -82,7 +82,15 @@ jobs:
           git clone --depth 1 https://github.com/bucanero/ps3libraries.git "$RUNNER_TEMP/ps3libraries"
           cd "$RUNNER_TEMP/ps3libraries/scripts"
 
-          bash 015-polarssl-1.3.9.sh
+          cat > "$RUNNER_TEMP/jezz-polarssl-make" <<'SH'
+          #!/usr/bin/env bash
+          set -euo pipefail
+          python3 "$GITHUB_WORKSPACE/scripts/patch_polarssl_entropy.py" "$PWD/entropy_poll.c"
+          exec make "$@"
+          SH
+          chmod +x "$RUNNER_TEMP/jezz-polarssl-make"
+
+          MAKE="$RUNNER_TEMP/jezz-polarssl-make" bash 015-polarssl-1.3.9.sh
           bash 016-libcurl-7.64.1.sh
 
           test -s "$PORTLIBS/lib/libpolarssl.a"
