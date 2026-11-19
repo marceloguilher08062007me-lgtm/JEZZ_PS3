@@ -17,6 +17,7 @@
 #include <sys/thread.h>
 #include <curl/curl.h>
 #include <lv2/system.h>
+#include <audio/audio.h>
 
 #define JEZZ_LOGO_PATH "/dev_hdd0/game/JEZZ00001/USRDIR/assets/JEZZ_LOGO.PNG"
 
