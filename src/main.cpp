@@ -18,6 +18,7 @@
 #include <curl/curl.h>
 #include <lv2/system.h>
 #include <audio/audio.h>
+#include <math.h>
 
 #define JEZZ_LOGO_PATH "/dev_hdd0/game/JEZZ00001/USRDIR/assets/JEZZ_LOGO.PNG"
 
@@ -1470,6 +1471,140 @@ static void DrawExitCountdown(int heldFrames) {
 }
 
 
+
+
+// =========================================================
+// TESTE DE AUDIO NATIVO - JEZZ
+// =========================================================
+static bool g_audioInitialized = false;
+static bool g_audioPortOpened = false;
+static bool g_audioQueueCreated = false;
+static bool g_audioQueueConnected = false;
+static bool g_audioPortStarted = false;
+static bool g_audioReady = false;
+
+static u32 g_audioPort = 0;
+static sys_event_queue_t g_audioQueue;
+static sys_ipc_key_t g_audioQueueKey;
+static audioPortConfig g_audioConfig;
+
+static u64 g_audioSamplesRemaining = 96000;
+static u32 g_audioNextBlock = 0;
+static double g_audioPhase = 0.0;
+
+static void AudioStop(void) {
+    g_audioReady = false;
+
+    if (g_audioPortStarted) {
+        audioPortStop(g_audioPort);
+        g_audioPortStarted = false;
+    }
+
+    if (g_audioQueueConnected) {
+        audioRemoveNotifyEventQueue(g_audioQueueKey);
+        g_audioQueueConnected = false;
+    }
+
+    if (g_audioPortOpened) {
+        audioPortClose(g_audioPort);
+        g_audioPortOpened = false;
+    }
+
+    if (g_audioQueueCreated) {
+        sysEventQueueDestroy(g_audioQueue, 0);
+        g_audioQueueCreated = false;
+    }
+
+    if (g_audioInitialized) {
+        audioQuit();
+        g_audioInitialized = false;
+    }
+}
+
+static bool AudioStart(void) {
+    audioPortParam param;
+    memset(&param, 0, sizeof(param));
+
+    param.numChannels = AUDIO_PORT_2CH;
+    param.numBlocks = AUDIO_BLOCK_8;
+    param.attrib = AUDIO_PORT_INITLEVEL;
+    param.level = 1.0f;
+
+    if (audioInit() != 0)
+        goto fail;
+    g_audioInitialized = true;
+
+    if (audioPortOpen(&param, &g_audioPort) != 0)
+        goto fail;
+    g_audioPortOpened = true;
+
+    if (audioGetPortConfig(g_audioPort, &g_audioConfig) != 0)
+        goto fail;
+
+    if (audioCreateNotifyEventQueue(&g_audioQueue, &g_audioQueueKey) != 0)
+        goto fail;
+    g_audioQueueCreated = true;
+
+    if (audioSetNotifyEventQueue(g_audioQueueKey) != 0)
+        goto fail;
+    g_audioQueueConnected = true;
+
+    sysEventQueueDrain(g_audioQueue);
+
+    if (audioPortStart(g_audioPort) != 0)
+        goto fail;
+    g_audioPortStarted = true;
+
+    g_audioSamplesRemaining = 96000;
+    g_audioNextBlock = 0;
+    g_audioPhase = 0.0;
+    g_audioReady = true;
+    return true;
+
+fail:
+    AudioStop();
+    return false;
+}
+
+static void AudioPump(void) {
+    if (!g_audioReady)
+        return;
+
+    for (int eventIndex = 0; eventIndex < AUDIO_BLOCK_8; ++eventIndex) {
+        sys_event_t event;
+
+        if (sysEventQueueReceive(g_audioQueue, &event, 1) != 0)
+            break;
+
+        const u32 block = g_audioNextBlock;
+        g_audioNextBlock = (g_audioNextBlock + 1) % g_audioConfig.numBlocks;
+
+        float *buffer = (float *)(u64)(
+            g_audioConfig.audioDataStart +
+            block * g_audioConfig.channelCount *
+            AUDIO_BLOCK_SAMPLES * sizeof(float)
+        );
+
+        for (int i = 0; i < AUDIO_BLOCK_SAMPLES; ++i) {
+            float sample = 0.0f;
+
+            if (g_audioSamplesRemaining > 0) {
+                sample = 0.10f * sinf((float)g_audioPhase);
+                g_audioPhase += 6.283185307179586 *
+                                440.0 / 48000.0;
+
+                if (g_audioPhase >= 6.283185307179586)
+                    g_audioPhase -= 6.283185307179586;
+
+                --g_audioSamplesRemaining;
+            }
+
+            buffer[i * 2] = sample;
+            buffer[i * 2 + 1] = sample;
+        }
+    }
+}
+
 int main(int argc, const char *argv[]) {
 
     (void)argc;
@@ -1488,6 +1623,7 @@ int main(int argc, const char *argv[]) {
     );
 
     ioPadInit(7);
+    AudioStart();
     LoadSettings();
     // A pilha de rede do sistema deve estar ativa para o libcurl.
     // Inicializa a pilha de rede do PS3.
@@ -1561,6 +1697,7 @@ int main(int argc, const char *argv[]) {
 
     while (1) {
 
+        AudioPump();
         memset(&padinfo, 0, sizeof(padinfo));
         memset(&pad, 0, sizeof(pad));
 
@@ -1864,6 +2001,7 @@ int main(int argc, const char *argv[]) {
         tiny3d_Flip();
     }
 
+    AudioStop();
     ioPadEnd();
 
     if (g_searchThreadActive) {
