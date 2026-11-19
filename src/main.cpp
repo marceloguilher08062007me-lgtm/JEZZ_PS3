@@ -1491,7 +1491,7 @@ static sys_event_queue_t g_audioQueue;
 static sys_ipc_key_t g_audioQueueKey;
 static audioPortConfig g_audioConfig;
 
-static u64 g_audioSamplesRemaining = 96000;
+static u64 g_audioSamplesRemaining = 240000;
 static u64 g_audioSamplesPlayed = 0;
 static u32 g_audioNextBlock = 0;
 static double g_audioPhase = 0.0;
@@ -1559,7 +1559,7 @@ static bool AudioStart(void) {
         goto fail;
     g_audioPortStarted = true;
 
-    g_audioSamplesRemaining = 96000;
+    g_audioSamplesRemaining = 240000;
     g_audioSamplesPlayed = 0;
     g_audioNextBlock = 0;
     g_audioPhase = 0.0;
@@ -1597,9 +1597,9 @@ static void AudioPump(void) {
                 const double elapsed = (double)g_audioSamplesPlayed / 48000.0;
                 const double remaining = (double)g_audioSamplesRemaining / 48000.0;
 
-                double envelope = elapsed / 0.55;
+                double envelope = elapsed / 0.80;
                 if (envelope > 1.0) envelope = 1.0;
-                double fadeOut = remaining / 0.65;
+                double fadeOut = remaining / 1.00;
                 if (fadeOut < envelope) envelope = fadeOut;
                 if (envelope < 0.0) envelope = 0.0;
 
@@ -1608,7 +1608,7 @@ static void AudioPump(void) {
                     0.65 * sin(g_audioPhase * 1.25) +
                     0.45 * sin(g_audioPhase * 1.5);
 
-                sample = (float)(0.022 * envelope * chord);
+                sample = (float)(0.045 * envelope * chord);
                 g_audioPhase += 6.283185307179586 * 220.0 / 48000.0;
 
                 if (g_audioPhase >= 6.283185307179586)
