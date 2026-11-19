@@ -195,6 +195,19 @@ jobs:
 
           echo "========== SYMBOLS: MAD =========="
 
+          echo "========== PSL1GHT AUDIO API =========="
+
+          find "$PSL1GHT/ppu/include" "$PORTLIBS/include" \
+            -type f -iname 'audio.h' -print 2>/dev/null || true
+
+          find "$PSL1GHT/ppu/lib" "$PORTLIBS/lib" \
+            -type f -name 'libaudio.a' -print 2>/dev/null || true
+
+          find "$PSL1GHT/ppu/include" "$PORTLIBS/include" \
+            -type f -iname 'audio.h' \
+            -exec grep -nE 'audioInit|audioPortOpen|audioPortWrite|audioQuit' {} \; \
+            2>/dev/null || true
+
           if [ -s "$PORTLIBS/lib/libmad.a" ]; then
             ppu-nm -u "$PORTLIBS/lib/libmad.a" || true
           fi
