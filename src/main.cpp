@@ -279,7 +279,7 @@ static void SearchAudius(const char *query) {
 
         char url[512];
         snprintf(url, sizeof(url),
-            "https://api.audius.co/v1/tracks/search?query=%s&limit=6",
+            "https://discoveryprovider.audius.co/v1/tracks/search?query=%s&limit=6",
             escaped);
         curl_free(escaped);
 
