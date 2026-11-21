@@ -103,7 +103,11 @@ static char g_searchQuery[128] = {0};
 static char g_searchStatus[96] = "";
 static char g_resultTitle[6][128];
 static char g_resultArtist[6][96];
+static char g_resultId[6][48];
+static char g_selectedTrackId[48] = {0};
 static int g_resultCount = 0;
+static int g_resultSelected = 0;
+static bool g_resultFocus = false;
 
 struct JezzHttpBuffer { char data[65536]; size_t used; };
 static size_t JezzCurlWrite(char *ptr, size_t size, size_t nmemb, void *userdata) {
@@ -230,9 +234,40 @@ static bool JsonReadStringRange(const char *start, const char *end,
     return true;
 }
 
+static bool JsonReadIdRange(const char *start, const char *end,
+                            const char *key, char *out, size_t cap) {
+    if (!out || cap < 2) return false;
+    out[0] = 0;
+    const char *p = JsonFindKey(start, end, key);
+    if (!p) return false;
+
+    while (p < end && (*p == ' ' || *p == '\\t' ||
+                       *p == '\\r' || *p == '\\n')) ++p;
+
+    bool quoted = p < end && *p == '"';
+    if (quoted) ++p;
+
+    size_t n = 0;
+    while (p < end) {
+        char c = *p;
+        if (quoted) {
+            if (c == '"') break;
+        } else {
+            if (c == ',' || c == '}' || c == ' ' ||
+                c == '\\t' || c == '\\r' || c == '\\n') break;
+        }
+        if (n + 1 < cap) out[n++] = c;
+        ++p;
+    }
+
+    out[n] = 0;
+    return n > 0;
+}
+
 static void SearchAudius(const char *query) {
     char titles[6][128] = {{0}};
     char artists[6][96] = {{0}};
+    char trackIds[6][48] = {{0}};
     int resultCount = 0;
     char statusText[96];
 
@@ -365,10 +400,13 @@ static void SearchAudius(const char *query) {
 
             char title[128] = "";
             char artist[96] = "Audius";
+            char trackId[48] = "";
 
             if (JsonReadStringRange(
                     p, objectEnd + 1, "title", title, sizeof(title)) &&
-                title[0]) {
+                title[0] &&
+                JsonReadIdRange(p, objectEnd + 1, "id",
+                                trackId, sizeof(trackId))) {
 
                 const char *userValue =
                     JsonFindKey(p, objectEnd + 1, "user");
@@ -399,6 +437,10 @@ static void SearchAudius(const char *query) {
                         sizeof(artists[0]) - 1);
                 artists[resultCount][sizeof(artists[0]) - 1] = 0;
 
+                strncpy(trackIds[resultCount], trackId,
+                        sizeof(trackIds[0]) - 1);
+                trackIds[resultCount][sizeof(trackIds[0]) - 1] = 0;
+
                 ++resultCount;
             }
 
@@ -423,12 +465,18 @@ publish:
     // Publica os resultados somente depois que a resposta estiver pronta.
     memset(g_resultTitle, 0, sizeof(g_resultTitle));
     memset(g_resultArtist, 0, sizeof(g_resultArtist));
+    memset(g_resultId, 0, sizeof(g_resultId));
+    g_resultSelected = 0;
+    g_resultFocus = false;
+    g_selectedTrackId[0] = 0;
 
     for (int i = 0; i < resultCount; ++i) {
         strncpy(g_resultTitle[i], titles[i],
                 sizeof(g_resultTitle[i]) - 1);
         strncpy(g_resultArtist[i], artists[i],
                 sizeof(g_resultArtist[i]) - 1);
+        strncpy(g_resultId[i], trackIds[i],
+                sizeof(g_resultId[i]) - 1);
     }
 
     g_resultCount = resultCount;
@@ -1361,9 +1409,23 @@ static void DrawScreen(int selected, int page, int focusArea, int contentRow, in
                 DrawText(224, 315, 8, 13, purple, g_searchStatus[0] ? g_searchStatus : LanguageText("DIGITE E PRESSIONE OK PARA PESQUISAR.", "TYPE AND PRESS OK TO SEARCH.", "ESCRIBE Y PULSA OK PARA BUSCAR."));
                 for (int i = 0; i < g_resultCount && i < 5; ++i) {
                     char line[180];
-                    snprintf(line, sizeof(line), "%d. %s - %s", i + 1, g_resultTitle[i], g_resultArtist[i]);
-                    DrawText(224, 340 + i * 17, 7, 12, white, line);
+                    snprintf(line, sizeof(line), "%d. %s - %s",
+                             i + 1, g_resultTitle[i], g_resultArtist[i]);
+
+                    if (g_resultFocus && g_resultSelected == i)
+                        DrawRect(220, 337 + i * 17, 548, 17,
+                                 0x49336A88, 120.0f);
+
+                    DrawText(224, 340 + i * 17, 7, 12,
+                             (g_resultFocus && g_resultSelected == i)
+                                 ? 0xD8C4FFFF : white, line);
                 }
+
+                if (g_selectedTrackId[0])
+                    DrawText(224, 405, 7, 11, purple,
+                        LanguageText("FAIXA SELECIONADA",
+                                     "SELECTED TRACK",
+                                     "CANCIÓN SELECCIONADA"));
             }
 
         } else if (page == 2) {
@@ -1888,15 +1950,54 @@ int main(int argc, const char *argv[]) {
                     }
                 }
             } else if (page == 1) {
-                if (cross && !previousCross) {
-                    g_keyboardOpen = true;
-                    g_keyboardRow = 0;
-                    g_keyboardCol = 0;
-                    g_searchRequested = false;
+                if (g_resultFocus) {
+                    if (up && !previousUp) {
+                        if (g_resultSelected > 0)
+                            --g_resultSelected;
+                        else
+                            g_resultFocus = false;
+                    }
+                    if (down && !previousDown) {
+                        if (g_resultSelected < g_resultCount - 1 &&
+                            g_resultSelected < 4)
+                            ++g_resultSelected;
+                        else
+                            focusArea = FOCUS_PLAYER;
+                    }
+                    if (left && !previousLeft)
+                        focusArea = FOCUS_SIDEBAR;
+
+                    if (cross && !previousCross &&
+                        g_resultSelected < g_resultCount &&
+                        g_resultId[g_resultSelected][0]) {
+                        strncpy(g_selectedTrackId,
+                                g_resultId[g_resultSelected],
+                                sizeof(g_selectedTrackId) - 1);
+                        g_selectedTrackId[sizeof(g_selectedTrackId) - 1] = 0;
+                        snprintf(g_searchStatus, sizeof(g_searchStatus),
+                                 "SELECIONADA: %.65s",
+                                 g_resultTitle[g_resultSelected]);
+                    }
+                } else {
+                    if (cross && !previousCross) {
+                        g_keyboardOpen = true;
+                        g_keyboardRow = 0;
+                        g_keyboardCol = 0;
+                        g_searchRequested = false;
+                    }
+                    if (left && !previousLeft)
+                        focusArea = FOCUS_SIDEBAR;
+                    if (down && !previousDown) {
+                        if (g_resultCount > 0) {
+                            g_resultFocus = true;
+                            g_resultSelected = 0;
+                        } else {
+                            focusArea = FOCUS_PLAYER;
+                        }
+                    }
+                    if (up && !previousUp)
+                        focusArea = FOCUS_SIDEBAR;
                 }
-                if (left && !previousLeft) focusArea = FOCUS_SIDEBAR;
-                if (down && !previousDown) focusArea = FOCUS_PLAYER;
-                if (up && !previousUp) focusArea = FOCUS_SIDEBAR;
             } else if (page == 2 || page == 3 || page == 4) {
                 int maxIndex = (page == 2) ? 3 : 4;
                 if (left && !previousLeft) {
